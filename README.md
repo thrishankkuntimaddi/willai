@@ -43,7 +43,7 @@ Without any, jobs and market pages still work.
 ## Deploy
 
 1. **Backend on Render (free):** New → Blueprint → select this repo (`render.yaml`). Set `GEMINI_API_KEY` in the
-   service's Environment tab. If the service URL is not `https://willai-api.onrender.com`, update `apiBase` in `public/config.js`.
+   service's Environment tab. If the service URL is not `https://willai-api-doyy.onrender.com`, update `apiBase` in `public/config.js`.
 2. **Frontend + rules on Firebase:** `firebase deploy --only hosting,firestore:rules`
 3. In Firebase Console → Authentication → Settings → Authorized domains, make sure `willai-564c9.web.app` is listed.
 

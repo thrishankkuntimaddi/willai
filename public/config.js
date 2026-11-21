@@ -1,7 +1,7 @@
 // Public configuration. Firebase web config is safe to publish; access is enforced by firestore.rules.
 // apiBase: where the Node backend runs. Locally it is the same origin; in production it is the Render service.
 window.WILLAI = {
-  apiBase: ['localhost', '127.0.0.1'].includes(location.hostname) ? '' : 'https://willai-api.onrender.com',
+  apiBase: ['localhost', '127.0.0.1'].includes(location.hostname) ? '' : 'https://willai-api-doyy.onrender.com',
   firebase: {
     apiKey: 'AIzaSyBTQzufKmCxeDo1CPOsRbJ4RkFTgYhrV0E',
     authDomain: 'willai-564c9.firebaseapp.com',
