@@ -47,12 +47,37 @@ async function api(path, opts = {}) {
 let TRENDS = null, USER = null, PROFILE = null, SAVED = new Set(), WILLAI_JOBS = null;
 const signedIn = () => !!USER;
 
+// The free backend sleeps when idle and its first collection takes a minute or two.
+// Never show "0 openings": show a waking state and poll /api/health until real data is there.
+let WAKING = null;
 async function loadTrends() {
   try {
-    TRENDS = await api('/api/trends');
+    const t = await api('/api/trends');
+    if (!t.total) throw new Error('empty');
+    TRENDS = t;
     $('#board').innerHTML = `<span class="asof">${num(TRENDS.total)} openings · ${hm(TRENDS.collectedAt)}</span>`;
-  } catch { $('#board').innerHTML = '<span class="asof off">job board offline</span>'; }
+  } catch {
+    $('#board').innerHTML = '<span class="asof waking">waking the job board</span>';
+    WAKING ||= wake();
+  }
   return TRENDS;
+}
+async function wake() {
+  const t0 = Date.now();
+  while (Date.now() - t0 < 5 * 60e3) {
+    await new Promise(r => setTimeout(r, 3000));
+    const h = await fetch(API + '/api/health').then(r => r.json()).catch(() => null);
+    if (h?.postings > 0) {
+      WAKING = null;
+      const before = TRENDS;
+      await loadTrends();
+      if (TRENDS && !before) { toast(`${num(TRENDS.total)} openings ready`); route(); }
+      return;
+    }
+    if (h) $('#board').innerHTML = `<span class="asof waking">${h.collecting ? 'collecting today\'s openings' : 'waking the job board'}</span>`;
+  }
+  WAKING = null;
+  $('#board').innerHTML = '<span class="asof off">job board offline</span>';
 }
 
 function renderAcct() {

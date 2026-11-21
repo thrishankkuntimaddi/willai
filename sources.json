@@ -1,7 +1,56 @@
 {
-  "_comment": "Companies whose PUBLIC job-board APIs are polled. Add any company that uses Greenhouse, Lever or Ashby by its board token.",
-  "greenhouse": ["anthropic", "stripe", "airbnb", "figma", "groww", "databricks", "cloudflare", "coinbase", "duolingo", "reddit", "discord", "gitlab", "dropbox", "pinterest", "lyft", "robinhood", "instacart"],
-  "lever": ["palantir", "meesho", "cred"],
-  "ashby": ["openai", "notion"],
-  "open_boards": ["remotive", "arbeitnow", "remoteok", "himalayas", "jobicy"]
+ "_comment": "Company job boards polled through their PUBLIC ATS APIs, grouped by category (shown as company_category). Check tokens with: node scripts/check-sources.mjs. Aggregators with API keys (Adzuna, Jooble, USAJobs, Reed) are enabled through environment variables.",
+ "boards": {
+  "AI labs & AI products": {
+   "greenhouse": ["anthropic", "assemblyai", "inflectionai", "observeai", "sambanovasystems", "scaleai", "stabilityai", "togetherai", "xai"],
+   "ashby": ["abridge", "baseten", "character", "cognition", "cohere", "decagon", "elevenlabs", "harvey", "langchain", "llamaindex", "lovable", "modal", "openai", "perplexity", "physicalintelligence", "pika", "pinecone", "poolside", "replit", "runway", "sierra", "speak", "suno", "weaviate", "writer"],
+   "lever": ["weride"]
+  },
+  "Developer tools & infrastructure": {
+   "greenhouse": ["algolia", "chainguard", "circleci", "cloudflare", "cockroachlabs", "contentful", "cribl", "databricks", "datadog", "dremio", "elastic", "fastly", "fivetran", "gitlab", "grafanalabs", "honeycomb", "jetbrains", "jfrog", "launchdarkly", "mixpanel", "mongodb", "neo4j", "netlify", "newrelic", "okta", "pagerduty", "planetscale", "singlestore", "stackblitz", "starburst", "storyblok", "sumologic", "tailscale", "twilio", "vercel", "yugabyte"],
+   "ashby": ["airbyte", "clerk", "hex", "inngest", "linear", "posthog", "prefect", "railway", "render", "resend", "sentry", "supabase", "temporal", "warp", "zed"]
+  },
+  "Big tech & platforms": {
+   "greenhouse": ["agoda", "airbnb", "airtable", "asana", "boxinc", "calendly", "discord", "doordashusa", "dropbox", "duolingo", "epicgames", "intercom", "lyft", "nextdoor", "pinterest", "reddit", "riotgames", "roblox", "smartsheet", "squarespace", "tripadvisor", "twitch", "zoominfo"],
+   "ashby": ["1password", "docker", "miro", "notion", "zapier"]
+  },
+  "Fintech & payments": {
+   "greenhouse": ["adyen", "affirm", "billcom", "bitgo", "block", "brex", "carta", "chime", "coinbase", "consensys", "fireblocks", "gemini", "gusto", "mercury", "monzo", "n26", "payoneer", "ripple", "robinhood", "slice", "sofi", "stripe", "toast", "wise"],
+   "ashby": ["column", "persona", "plaid", "ramp", "sardine", "socure"],
+   "lever": ["cred", "fampay", "fi", "paytm"]
+  },
+  "Indian product companies & startups": {
+   "greenhouse": ["druva", "glance", "groww", "hackerrank", "highradius", "inmobi", "verse"],
+   "lever": ["meesho", "ninjavan", "pocketfm", "porter"],
+   "ashby": ["atlan", "bolna", "composio", "sarvam", "smallest"],
+   "smartrecruiters": ["Experian", "freshworks"],
+   "recruitee": ["bunq"]
+  },
+  "SaaS & enterprise": {
+   "greenhouse": ["6sense", "attentive", "braze", "checkr", "cultureamp", "descript", "figma", "hootsuite", "justworks", "klaviyo", "later", "lattice", "pendo", "postscript", "salesloft", "showpad", "sproutsocial", "wrike", "yotpo"],
+   "lever": ["outreach", "walkme"]
+  },
+  "Security": {
+   "greenhouse": ["abnormalsecurity", "axonius", "bigid", "bitwarden", "expel", "huntress", "netskope", "onetrust", "tines", "torq", "zscaler"],
+   "ashby": ["drata", "semgrep", "socket", "vanta"]
+  },
+  "E-commerce, mobility & marketplaces": {
+   "greenhouse": ["faire", "flexport", "instacart", "kodiak", "motional", "motive", "nuro", "peloton", "project44", "samsara", "stockx", "waymo"],
+   "lever": ["blablacar", "zoox"]
+  },
+  "Healthtech & biotech": {
+   "greenhouse": ["doximity", "komodohealth", "modernhealth", "onemedical", "oscar", "zocdoc"],
+   "ashby": ["freed", "nabla", "tennr"]
+  },
+  "Gaming & media": {
+   "greenhouse": ["bungie", "scopely"],
+   "lever": ["jamcity", "kabam"]
+  },
+  "Hardware, semis & robotics": {
+   "greenhouse": ["agilityrobotics", "apptronik", "astranis", "figure", "formic", "graphcore", "lightmatter", "locusrobotics", "oklo", "redwoodmaterials", "rocketlab", "solidpower", "spacex", "tenstorrent"],
+   "ashby": ["1x", "saronic"],
+   "lever": ["hermeus"]
+  }
+ },
+ "open_boards": ["remotive", "arbeitnow", "remoteok", "himalayas", "jobicy", "themuse"]
 }

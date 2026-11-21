@@ -1,11 +1,14 @@
 {
   "name": "willai",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "WillAI: what AI can do in your job, where to go next, and live tech job openings",
+  "main": "server.mjs",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node --env-file-if-exists=.env server.mjs"
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "test": "node --test 'test/*.test.mjs'",
+    "test:rules": "firebase emulators:exec --only firestore --project willai-rules-test \"node --test 'test/rules/*.test.mjs'\"",
+    "check-sources": "node scripts/check-sources.mjs",
+    "collect": "node --env-file-if-exists=.env scripts/collect.mjs"
   },
   "keywords": [],
   "author": "",
@@ -13,6 +16,15 @@
   "type": "module",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.12.0",
-    "jose": "^6.2.18"
+    "@electric-sql/pglite": "^0.5.17",
+    "jose": "^6.2.18",
+    "postgres": "^4.1.1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase": "^13.4.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -1,0 +1,16 @@
+# Keeps the free Render backend awake (it sleeps after 15 idle minutes) so visitors never land on an empty job board.
+# One always-on free service uses ~730 of Render's 750 free hours a month. Also keeps the Supabase project from pausing.
+name: Keep the API awake
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping /api/health
+        run: curl -fsS --retry 4 --retry-delay 15 --max-time 60 "${API_URL:-https://willai-api-doyy.onrender.com}/api/health"
+        env:
+          API_URL: ${{ vars.API_URL }}

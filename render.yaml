@@ -1,12 +1,12 @@
 # Render blueprint for the backend (job collector + AI adviser). Free plan.
-# In Render: New → Blueprint → pick this repo. Then set GEMINI_API_KEY in the service's Environment tab.
+# In Render: New → Blueprint → pick this repo. Then set the secret values (sync: false) in the service's Environment tab.
 services:
   - type: web
     name: willai-api
     runtime: node
     plan: free
     region: singapore
-    buildCommand: npm ci
+    buildCommand: npm ci --omit=dev
     startCommand: node server.mjs
     healthCheckPath: /api/health
     envVars:
@@ -22,3 +22,17 @@ services:
         sync: false
       - key: ALLOWED_ORIGINS
         value: https://willai-564c9.web.app,https://willai-564c9.firebaseapp.com
+      - key: DATABASE_URL           # Supabase connection string (transaction pooler, port 6543)
+        sync: false
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false
+      - key: JOOBLE_KEY
+        sync: false
+      - key: USAJOBS_KEY
+        sync: false
+      - key: USAJOBS_EMAIL
+        sync: false
+      - key: REED_KEY
+        sync: false

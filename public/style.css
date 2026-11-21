@@ -43,6 +43,9 @@ h1,h2,h3,h4,p{margin:0}
 .asof{font-family:var(--mono);font-size:12px;color:var(--t3);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
 .asof::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--human)}
 .asof.off::before{background:var(--t3)}
+.asof.waking::before{background:var(--aug);animation:blink 1.2s var(--ease) infinite}
+@keyframes blink{50%{opacity:.25}}
+@media (prefers-reduced-motion:reduce){.asof.waking::before{animation:none}}
 
 main{max-width:1200px;margin:0 auto;padding:0 32px 96px}
 .page-h{padding:48px 0 24px;display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
