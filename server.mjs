@@ -64,12 +64,19 @@ const ipOf = req => (req.headers['x-forwarded-for'] || '').split(',')[0].trim() 
 const need = async req => { const u = await userFrom(req); if (!u) throw Object.assign(new Error('Sign in first.'), { status: 401 }); return u; };
 const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(r, ms))]);
 
+const HEALTH = { v: null, t: 0, p: null };
+
 /* ---------------- routes ---------------- */
 const routes = {
+  // Render restarts the server when this is slow, so it answers from a 60-second cache and never waits more than 3 s on the database.
   'GET /api/health': async () => {
-    const [size, run] = await Promise.all([store.sizeInfo(), store.lastRun()]);
-    return { ok: true, postings: size.active, archived: size.stale + size.closed, bytes: size.bytes, db: store.db().kind,
-      collectedAt: run?.started_at || null, collecting: isCollecting(), ai: provider() };
+    if (!HEALTH.v || Date.now() - HEALTH.t > 60e3) {
+      HEALTH.p ||= Promise.all([store.sizeInfo(), store.lastRun()]).then(([size, run]) => {
+        HEALTH.v = { postings: size.active, archived: size.stale + size.closed, bytes: size.bytes, collectedAt: run?.started_at || null }; HEALTH.t = Date.now();
+      }).catch(e => console.warn('[health]', e.message)).finally(() => { HEALTH.p = null; });
+      await Promise.race([HEALTH.p, new Promise(r => setTimeout(r, 3000))]);
+    }
+    return { ok: true, ...(HEALTH.v || { postings: null }), db: store.db().kind, collecting: isCollecting(), ai: provider() };
   },
   'GET /api/trends': () => Q.trends(),
   'GET /api/jobs': async (req, url) => {
