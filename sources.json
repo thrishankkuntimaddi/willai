@@ -1,0 +1,7 @@
+{
+  "_comment": "Companies whose PUBLIC job-board APIs are polled. Add any company that uses Greenhouse, Lever or Ashby by its board token.",
+  "greenhouse": ["anthropic", "stripe", "airbnb", "figma", "groww", "databricks", "cloudflare", "coinbase", "duolingo", "reddit", "discord", "gitlab", "dropbox", "pinterest", "lyft", "robinhood", "instacart"],
+  "lever": ["palantir", "meesho", "cred"],
+  "ashby": ["openai", "notion"],
+  "open_boards": ["remotive", "arbeitnow", "remoteok", "himalayas", "jobicy"]
+}

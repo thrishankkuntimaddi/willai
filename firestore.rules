@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
+    function str(v, max) { return v is string && v.size() <= max; }
+    function isEmployer() {
+      return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'employer';
+    }
+
+    // A person's own account, reports and saved jobs: only they can see or change them.
+    match /users/{uid} {
+      function validUser() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['role', 'name', 'email', 'company', 'createdAt'])
+          && d.role in ['seeker', 'employer'] && str(d.name, 120) && str(d.email, 200) && str(d.company, 120);
+      }
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && validUser();
+
+      match /reports/{rid} {
+        allow read, delete: if isOwner(uid);
+        allow create: if isOwner(uid) && request.resource.data.keys().hasOnly(['profile', 'result', 'done', 'createdAt'])
+          && request.resource.data.done is list;
+        allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done'])
+          && request.resource.data.done is list && request.resource.data.done.size() <= 60;
+      }
+
+      match /saved_jobs/{jid} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['title', 'company', 'url', 'location', 'source', 'posted', 'savedAt'])
+          && str(request.resource.data.title, 300) && str(request.resource.data.url, 1000);
+      }
+    }
+
+    // Jobs posted by employers. Anyone can read open jobs; only the employer who posted one can change it.
+    match /jobs/{jobId} {
+      function validJob() {
+        let d = request.resource.data;
+        return d.keys().hasOnly(['ownerUid', 'title', 'company', 'location', 'remote', 'type', 'salary', 'description', 'applyUrl', 'status', 'createdAt', 'updatedAt'])
+          && str(d.title, 120) && d.title.size() > 1 && str(d.company, 120) && d.company.size() > 0
+          && str(d.location, 120) && d.remote is bool && str(d.type, 40) && str(d.salary, 80)
+          && str(d.description, 6000) && d.description.size() > 10
+          && str(d.applyUrl, 500) && (d.applyUrl.matches('^https://.+') || d.applyUrl.matches('^mailto:.+'))
+          && d.status in ['open', 'closed'];
+      }
+      allow read: if resource.data.status == 'open' || (signedIn() && resource.data.ownerUid == request.auth.uid);
+      allow create: if isEmployer() && validJob() && request.resource.data.ownerUid == request.auth.uid && request.resource.data.status == 'open';
+      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid && validJob()
+        && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+  }
+}

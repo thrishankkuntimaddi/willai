@@ -1,0 +1,24 @@
+# Render blueprint for the backend (job collector + AI adviser). Free plan.
+# In Render: New → Blueprint → pick this repo. Then set GEMINI_API_KEY in the service's Environment tab.
+services:
+  - type: web
+    name: willai-api
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci
+    startCommand: node server.mjs
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: NODE_VERSION
+        value: "24"
+      - key: FIREBASE_PROJECT_ID
+        value: willai-564c9
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://willai-564c9.web.app,https://willai-564c9.firebaseapp.com
