@@ -95,6 +95,7 @@ const PAGES = {
 let seq = 0;
 export const currentRoute = () => location.hash.replace(/^#\/?/, '').split(/[/?]/)[0];
 export async function route() {
+  document.getElementById('drawer')?.close?.();          // a job drawer never outlives its page
   const [path] = location.hash.replace(/^#\/?/, '').split('?');
   const [r, ...rest] = path.split('/');
   $$('#nav a').forEach(a => a.classList.toggle('on', a.dataset.r === r || (r === 'report' && a.dataset.r === '')));
