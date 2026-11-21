@@ -8,8 +8,10 @@ import * as store from './lib/db.mjs';
 import { collect, isCollecting, liveSearch } from './lib/collect.mjs';
 import * as Q from './lib/queries.mjs';
 import { advise } from './lib/advise.mjs';
+import { recommend } from './lib/recommend.mjs';
+import * as E from './lib/employer.mjs';
 import { provider, Anthropic } from './lib/llm.mjs';
-import { cleanField, filtersFrom } from './lib/params.mjs';
+import { cleanField, filtersFrom, cleanProfile } from './lib/params.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +process.env.PORT || 8787;
@@ -59,6 +61,7 @@ function allowed(key, max) {
 }
 const ipOf = req => (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
 
+const need = async req => { const u = await userFrom(req); if (!u) throw Object.assign(new Error('Sign in first.'), { status: 401 }); return u; };
 const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(r, ms))]);
 
 /* ---------------- routes ---------------- */
@@ -81,21 +84,33 @@ const routes = {
     return { job: j, similar: await Q.similar(j) };
   },
   'GET /api/market': (req, url) => Q.market(cleanField(url.searchParams.get('q'), 80)),
+  'GET /api/graph': () => Q.graph(),
   'GET /api/suggest': (req, url) => Q.suggest(cleanField(url.searchParams.get('q'), 60)),
   'POST /api/refresh': async req => {
     if (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) throw Object.assign(new Error('local only'), { status: 403 });
     const run = await collect(); Q.clearCache(); return { ok: true, total: run.total };
   },
+  'POST /api/recommend': async req => {
+    const b = await readBody(req, 32768);
+    const avoid = {};
+    for (const [k, v] of Object.entries(b.avoid || {}).slice(0, 40)) avoid[cleanField(k, 40)] = Math.min(20, +v || 0);
+    return recommend(cleanProfile(b.profile || {}), { limit: Math.max(1, Math.min(50, +b.limit || 20)), avoid });
+  },
+  'POST /api/jobs/report': async req => {
+    const u = await need(req);
+    if (!allowed('r:' + u.uid, 30)) throw Object.assign(new Error('Too many reports this hour.'), { status: 429 });
+    const r = await E.reportJob(u.uid, await readBody(req)); Q.clearCache(); return r;
+  },
+  'GET /api/employer/jobs': async req => ({ items: await E.myPosts((await need(req)).uid) }),
+  'POST /api/employer/jobs': async req => { const r = await E.createPost(await need(req), await readBody(req, 16384)); Q.clearCache(); return r; },
+  'PATCH /api/employer/jobs': async (req, url) => { await E.setPostStatus((await need(req)).uid, cleanField(url.searchParams.get('id'), 300), url.searchParams.get('status')); Q.clearCache(); return { ok: true }; },
+  'DELETE /api/employer/jobs': async (req, url) => { await E.deletePost((await need(req)).uid, cleanField(url.searchParams.get('id'), 300)); Q.clearCache(); return { ok: true }; },
   'POST /api/advise': async req => {
     const user = await userFrom(req);
     const ok = user ? allowed('u:' + user.uid, Number(process.env.ADVISE_PER_HOUR_USER || 12)) : allowed('ip:' + ipOf(req), Number(process.env.ADVISE_PER_HOUR || 3));
     if (!ok) throw Object.assign(new Error(user ? 'You have reached the hourly limit. Try again in an hour.' : 'Free analyses for this hour are used up. Sign in for more.'), { status: 429 });
-    const b = await readBody(req);
-    const profile = {
-      role: cleanField(b.role, 80), years: cleanField(b.years, 10), skills: cleanField(b.skills, 800), country: cleanField(b.country, 60),
-      education: cleanField(b.education, 120), target: cleanField(b.target, 80), constraints: cleanField(b.constraints, 300),
-    };
-    if (profile.role.length < 2) throw Object.assign(new Error('Tell us your current job or role.'), { status: 400 });
+    const profile = cleanProfile(await readBody(req));
+    if ((profile.role || profile.target).length < 2) throw Object.assign(new Error('Tell us your current role, or the role you want.'), { status: 400 });
     return advise(profile);
   },
 };
@@ -104,7 +119,7 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     const origin = req.headers.origin;
-    res.cors = origin && ALLOWED_ORIGINS.has(origin) ? { 'access-control-allow-origin': origin, vary: 'Origin', 'access-control-allow-headers': 'content-type, authorization', 'access-control-allow-methods': 'GET, POST, OPTIONS', 'access-control-max-age': '600' } : {};
+    res.cors = origin && ALLOWED_ORIGINS.has(origin) ? { 'access-control-allow-origin': origin, vary: 'Origin', 'access-control-allow-headers': 'content-type, authorization', 'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'access-control-max-age': '600' } : {};
     if (req.method === 'OPTIONS') { res.writeHead(204, res.cors); return res.end(); }
     const handler = routes[`${req.method} ${url.pathname}`];
     if (handler) return send(res, 200, await handler(req, url));

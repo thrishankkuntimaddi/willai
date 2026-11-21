@@ -2,10 +2,11 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js';
 import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword,
-  signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile, signOut,
+  signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile, signOut, deleteUser, reauthenticateWithPopup,
+  reauthenticateWithCredential, EmailAuthProvider,
 } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js';
 import {
-  getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, limit, getDocs, serverTimestamp,
+  getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, limit, getDocs, serverTimestamp, orderBy, writeBatch,
 } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-firestore.js';
 
 const app = initializeApp(window.WILLAI.firebase);
@@ -106,3 +107,71 @@ export const openJobs = async () => {
       .map(d => ({ id: 'willai:' + d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
   } catch (e) { console.warn('openJobs', e.code || e.message); return []; }
 };
+
+/* ---------- career profile and preferences (users/{uid}.career, .prefs) ---------- */
+const CAREER_KEYS = ['status', 'role', 'company', 'years', 'dailyWork', 'gapMonths', 'gapReason', 'gradYear', 'skills', 'technologies', 'projects', 'education',
+  'target', 'workModes', 'locations', 'country', 'relocate', 'expectedSalary', 'noticePeriod', 'planDays', 'weeklyHours', 'budget', 'constraints'];
+export const saveCareer = wrap(async c => {
+  const career = strip(Object.fromEntries(CAREER_KEYS.filter(k => k in c).map(k => [k, c[k]])));
+  await updateDoc(doc(db, 'users', uidOr()), { career, updatedAt: serverTimestamp() });
+  profile = { ...profile, career };
+});
+export const savePrefs = wrap(async prefs => {
+  const p = strip({ defaultPlanDays: +prefs.defaultPlanDays || 90, shareByDefault: !!prefs.shareByDefault, hideFlagged: prefs.hideFlagged !== false, techOnly: prefs.techOnly !== false });
+  await updateDoc(doc(db, 'users', uidOr()), { prefs: p, updatedAt: serverTimestamp() });
+  profile = { ...profile, prefs: p }; emit();
+});
+export const updateName = wrap(async name => {
+  await updateDoc(doc(db, 'users', uidOr()), { name, updatedAt: serverTimestamp() });
+  await updateProfile(current, { displayName: name });
+  profile = { ...profile, name }; emit();
+});
+export const providers = () => (current?.providerData || []).map(p => p.providerId);
+
+/* ---------- feedback and anonymous sharing ---------- */
+export const sendFeedback = wrap(async f => (await addDoc(collection(db, 'feedback'), strip({
+  uid: uidOr(), rating: Math.max(1, Math.min(5, +f.rating || 0)), chips: (f.chips || []).slice(0, 6).map(c => String(c).slice(0, 40)),
+  text: String(f.text || '').slice(0, 1000), reportId: f.reportId || null, page: String(f.page || '').slice(0, 80), createdAt: serverTimestamp(),
+}))).id);
+const shareId = rid => `${uidOr()}_${rid}`;
+export const shareReport = wrap(async (rid, card) => setDoc(doc(db, 'shared_reports', shareId(rid)), { ...strip(card), ownerUid: uidOr(), createdAt: serverTimestamp() }));
+export const unshareReport = wrap(async rid => deleteDoc(doc(db, 'shared_reports', shareId(rid))));
+export const isShared = async rid => { try { return (await getDoc(doc(db, 'shared_reports', shareId(rid)))).exists(); } catch { return false; } };
+export const listShared = async (n = 40) => {
+  try { return (await getDocs(query(collection(db, 'shared_reports'), orderBy('createdAt', 'desc'), limit(n)))).docs.map(d => ({ id: d.id, ...d.data() })); }
+  catch (e) { console.warn('listShared', e.code || e.message); return []; }
+};
+
+/* ---------- dismissed jobs (feeds recommendations) ---------- */
+export const dismissJob = wrap(async j => setDoc(doc(db, 'users', uidOr(), 'dismissed_jobs', jobKey(j.id)), { family: String(j.family || '').slice(0, 40), at: serverTimestamp() }));
+export const undismissJob = wrap(async id => deleteDoc(doc(db, 'users', uidOr(), 'dismissed_jobs', jobKey(id))));
+export const listDismissed = wrap(async () => (await getDocs(collection(db, 'users', uidOr(), 'dismissed_jobs'))).docs.map(d => ({ key: d.id, ...d.data() })));
+
+/* ---------- your data: export and delete ---------- */
+const sub = async name => (await getDocs(collection(db, 'users', uidOr(), name))).docs;
+export const exportData = wrap(async () => {
+  const uid = uidOr();
+  const [u, reports, saved, dismissed, fb, shared] = await Promise.all([
+    getDoc(doc(db, 'users', uid)), sub('reports'), sub('saved_jobs'), sub('dismissed_jobs'),
+    getDocs(query(collection(db, 'feedback'), where('uid', '==', uid))), getDocs(query(collection(db, 'shared_reports'), where('ownerUid', '==', uid))),
+  ]);
+  const all = docs => docs.map(d => ({ id: d.id, ...d.data() }));
+  return { exportedAt: new Date().toISOString(), account: { uid, email: current.email, ...u.data() }, reports: all(reports), savedJobs: all(saved),
+    dismissedJobs: all(dismissed), feedback: all(fb.docs), sharedReports: all(shared.docs) };
+});
+// Deletes everything the person stored, then the sign-in itself. Firebase asks for a recent sign-in first.
+export const deleteAccount = wrap(async (password) => {
+  const uid = uidOr();
+  try {
+    if (providers().includes('google.com')) await reauthenticateWithPopup(current, new GoogleAuthProvider());
+    else await reauthenticateWithCredential(current, EmailAuthProvider.credential(current.email, password || ''));
+  } catch (e) { if (e.code === 'auth/popup-closed-by-user') throw e; if (!providers().includes('google.com')) throw Object.assign(new Error('That password is not right.'), { code: 'x' }); throw e; }
+  const refs = [
+    ...(await sub('reports')), ...(await sub('saved_jobs')), ...(await sub('dismissed_jobs')),
+    ...(await getDocs(query(collection(db, 'feedback'), where('uid', '==', uid)))).docs,
+    ...(await getDocs(query(collection(db, 'shared_reports'), where('ownerUid', '==', uid)))).docs,
+  ].map(d => d.ref);
+  for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach(r => b.delete(r)); await b.commit(); }
+  await deleteDoc(doc(db, 'users', uid));
+  await deleteUser(current);
+});

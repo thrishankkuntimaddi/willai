@@ -11,11 +11,12 @@ search live openings, save the ones you like, and employers can post roles of th
 
 | Part | What it does |
 |---|---|
-| **Analyse** | Gemini (or Claude) reads your profile next to the most relevant live openings and returns a task-by-task exposure score, what stays human, skills to learn, roles to move into and a 90-day plan |
-| **Jobs** | Search and filter thousands of live openings, save them to your account, apply on the company's page |
-| **For employers** | Employers sign up and post roles, which appear next to live openings for everyone |
-| **Market** | AI skill demand, new AI-era job titles, who is hiring, source health, all computed from live postings |
-| **Account** | Google or email sign-in. Reports, plan progress and saved jobs follow you across devices |
+| **Analyse** | A five-step cycle: where you are (working, fresher, student, career break, between jobs, freelancer), skills with levels, tools and projects, education, the role you want with work mode and cities, and a plan length from 30 days to a year |
+| **Report** | Three numbers worked out in the open (AI exposure, readiness for your target, openings near you), three takeaways, then short chapters: your work, your gap, roles, a day-by-day plan with hours, deliverables and checked resource links, jobs, and "how we scored" tables that add up |
+| **Jobs** | Search by keyword and city with a radius or "near me", filter by work mode, level, role family, recency, type, company type and pay, with live counts. Trust badges and reasons on every posting, a detail drawer with your skill match, report-a-job, and a "For you" tab |
+| **Market** | A live job map (role families, skills and companies linked by co-occurrence, with travelling signals), skill demand, AI-era titles, who is hiring, where, and source health |
+| **Account** | Profile with a completeness meter, settings (defaults, privacy, download your data, delete your account), saved jobs, plan progress, feedback, and opt-in anonymous sharing of reports, which appear on the home page and in the "people moving through tech" map |
+| **Employers** | Post roles through the server (same scam checks), verified badge for confirmed company-domain emails |
 
 ## Architecture
 

@@ -4,16 +4,35 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function isOwner(uid) { return signedIn() && request.auth.uid == uid; }
     function str(v, max) { return v is string && v.size() <= max; }
-    function isEmployer() {
-      return signedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'employer';
+    function optStr(m, k, max) { return !(k in m) || str(m[k], max); }
+    function optList(m, k, max) { return !(k in m) || (m[k] is list && m[k].size() <= max); }
+    function optNum(m, k, lo, hi) { return !(k in m) || m[k] == '' || m[k] == null || (m[k] is number && m[k] >= lo && m[k] <= hi); }
+
+    // The career profile behind every analysis. Shape-checked so one account cannot bloat or corrupt it.
+    function validCareer(c) {
+      return c is map
+        && c.keys().hasOnly(['status', 'role', 'company', 'years', 'dailyWork', 'gapMonths', 'gapReason', 'gradYear', 'skills', 'technologies', 'projects',
+             'education', 'target', 'workModes', 'locations', 'country', 'relocate', 'expectedSalary', 'noticePeriod', 'planDays', 'weeklyHours', 'budget', 'constraints'])
+        && (!('status' in c) || c.status in ['working', 'fresher', 'student', 'gap', 'freelancer', 'between'])
+        && optStr(c, 'role', 80) && optStr(c, 'company', 80) && optStr(c, 'dailyWork', 800) && optStr(c, 'gapReason', 200)
+        && optStr(c, 'target', 80) && optStr(c, 'country', 60) && optStr(c, 'constraints', 300) && optStr(c, 'expectedSalary', 40) && optStr(c, 'noticePeriod', 40)
+        && optList(c, 'skills', 40) && optList(c, 'technologies', 30) && optList(c, 'projects', 8) && optList(c, 'education', 4)
+        && optList(c, 'workModes', 3) && optList(c, 'locations', 5)
+        && optNum(c, 'planDays', 7, 365) && optNum(c, 'weeklyHours', 1, 80)
+        && (!('budget' in c) || c.budget in ['free', 'some']);
+    }
+    function validPrefs(p) {
+      return p is map && p.keys().hasOnly(['defaultPlanDays', 'shareByDefault', 'hideFlagged', 'techOnly'])
+        && optNum(p, 'defaultPlanDays', 7, 365);
     }
 
     // A person's own account, reports and saved jobs: only they can see or change them.
     match /users/{uid} {
       function validUser() {
         let d = request.resource.data;
-        return d.keys().hasOnly(['role', 'name', 'email', 'company', 'createdAt'])
-          && d.role in ['seeker', 'employer'] && str(d.name, 120) && str(d.email, 200) && str(d.company, 120);
+        return d.keys().hasOnly(['role', 'name', 'email', 'company', 'createdAt', 'updatedAt', 'career', 'prefs'])
+          && d.role in ['seeker', 'employer'] && str(d.name, 120) && str(d.email, 200) && str(d.company, 120)
+          && (!('career' in d) || validCareer(d.career)) && (!('prefs' in d) || validPrefs(d.prefs));
       }
       allow read, delete: if isOwner(uid);
       allow create, update: if isOwner(uid) && validUser();
@@ -32,23 +51,44 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['title', 'company', 'url', 'location', 'source', 'posted', 'savedAt'])
           && str(request.resource.data.title, 300) && str(request.resource.data.url, 1000);
       }
+
+      // jobs the person said "not for me" to; used to tune recommendations
+      match /dismissed_jobs/{jid} {
+        allow read, delete: if isOwner(uid);
+        allow create, update: if isOwner(uid) && request.resource.data.keys().hasOnly(['family', 'at']) && str(request.resource.data.family, 40);
+      }
     }
 
-    // Jobs posted by employers. Anyone can read open jobs; only the employer who posted one can change it.
+    // Feedback on reports and the site. Write-once by the signed-in author; only they can read or delete it.
+    match /feedback/{fid} {
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'rating', 'chips', 'text', 'reportId', 'page', 'createdAt'])
+        && request.resource.data.rating is number && request.resource.data.rating >= 1 && request.resource.data.rating <= 5
+        && request.resource.data.chips is list && request.resource.data.chips.size() <= 6
+        && str(request.resource.data.text, 1000) && str(request.resource.data.page, 80);
+      allow read, delete: if signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    // Reports people chose to share anonymously. Anyone can read them; only allow-listed, non-identifying fields.
+    match /shared_reports/{sid} {
+      allow read: if true;
+      allow create, update: if signedIn() && request.resource.data.ownerUid == request.auth.uid && sid.matches(request.auth.uid + '_.+')
+        && request.resource.data.keys().hasOnly(['ownerUid', 'role', 'status', 'yearsBand', 'country', 'city', 'target', 'family', 'exposure', 'readiness',
+             'nearOpenings', 'tasks', 'roles', 'planDays', 'phases', 'takeaways', 'rating', 'createdAt'])
+        && str(request.resource.data.role, 80) && str(request.resource.data.target, 80) && str(request.resource.data.country, 60) && str(request.resource.data.city, 60)
+        && request.resource.data.tasks is list && request.resource.data.tasks.size() <= 9
+        && request.resource.data.roles is list && request.resource.data.roles.size() <= 5
+        && request.resource.data.phases is list && request.resource.data.phases.size() <= 6
+        && request.resource.data.takeaways is list && request.resource.data.takeaways.size() <= 3
+        && request.resource.data.rating is number && request.resource.data.rating >= 1 && request.resource.data.rating <= 5;
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    // Jobs posted by employers (legacy; new postings go through the WillAI server so they get scam checks).
     match /jobs/{jobId} {
-      function validJob() {
-        let d = request.resource.data;
-        return d.keys().hasOnly(['ownerUid', 'title', 'company', 'location', 'remote', 'type', 'salary', 'description', 'applyUrl', 'status', 'createdAt', 'updatedAt'])
-          && str(d.title, 120) && d.title.size() > 1 && str(d.company, 120) && d.company.size() > 0
-          && str(d.location, 120) && d.remote is bool && str(d.type, 40) && str(d.salary, 80)
-          && str(d.description, 6000) && d.description.size() > 10
-          && str(d.applyUrl, 500) && (d.applyUrl.matches('^https://.+') || d.applyUrl.matches('^mailto:.+'))
-          && d.status in ['open', 'closed'];
-      }
       allow read: if resource.data.status == 'open' || (signedIn() && resource.data.ownerUid == request.auth.uid);
-      allow create: if isEmployer() && validJob() && request.resource.data.ownerUid == request.auth.uid && request.resource.data.status == 'open';
-      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid && validJob()
-        && request.resource.data.ownerUid == resource.data.ownerUid;
+      allow update: if signedIn() && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']) && request.resource.data.status in ['open', 'closed'];
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
     }
   }
