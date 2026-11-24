@@ -31,22 +31,35 @@ export const BODY = {
     ${field('c-constraints', 'Anything else we should plan around', `<textarea class="in" id="c-constraints" data-c="constraints" rows="2" maxlength="300" placeholder="Night shifts, slow laptop, prefer Telugu videos">${esc(C.constraints)}</textarea>`, 'optional')}`,
 };
 
+// Labels for the "where you are now" fields, per situation. Short labels so they never wrap and push inputs out of line.
+const FIELDS = {
+  working: { role: 'Your current role', rolePh: 'Frontend developer, QA engineer, IT support', num: 'Years', numKey: 'years', numPh: '3',
+    company: 'Company', companyPh: 'Where you work', daily: 'What you do on a normal day', dailyPh: 'Build React screens from Figma, fix bugs, write unit tests, review PRs' },
+  between: { role: 'Your last role', rolePh: 'Frontend developer, QA engineer, IT support', num: 'Years', numKey: 'years', numPh: '3',
+    company: 'Last company', companyPh: 'Where you worked', daily: 'What you did on a normal day', dailyPh: 'Built React screens, fixed bugs, wrote unit tests, reviewed PRs' },
+  freelancer: { role: 'What you do for clients', rolePh: 'Web developer, designer, data analyst', num: 'Years', numKey: 'years', numPh: '3',
+    company: 'Kind of clients', companyPh: 'Startups, agencies, local shops', daily: 'What a normal project looks like', dailyPh: 'Build Shopify stores, set up analytics, fix site speed' },
+  gap: { role: 'Your last role', rolePh: 'Software engineer', num: 'Years worked', numKey: 'years', numPh: '2',
+    daily: 'What you did in that role', dailyHint: 'the plan will get these skills current', dailyPh: 'Built APIs in Java, wrote tests, handled releases' },
+  fresher: { role: 'Internship or part-time role', roleOpt: true, rolePh: 'Optional', num: 'Graduated', numKey: 'gradYear', numPh: '2026',
+    company: 'Where you interned', companyPh: 'Company or lab', daily: 'What you have built or worked on', dailyHint: 'optional', dailyPh: 'Final-year project in React, internship fixing bugs, hackathons' },
+  student: { role: 'Internship or part-time role', roleOpt: true, rolePh: 'Optional', num: 'Graduating', numKey: 'gradYear', numPh: '2027',
+    company: 'Where you interned', companyPh: 'Company or lab', daily: 'What you have built or worked on', dailyHint: 'optional', dailyPh: 'Course projects, a portfolio site, open-source fixes' },
+};
+
 export const BIND = {
   now: (root, C, persist) => {
     const draw = () => {
       const st = C.status, f = $('#st-fields', root);
-      f.innerHTML = ['working', 'between', 'freelancer'].includes(st) ? `
-        <div class="ask-row">${field('c-role', st === 'freelancer' ? 'What you do for clients' : st === 'between' ? 'Your last role' : 'Your current role', text(C, 'role', 'Frontend developer, QA engineer, IT support'))}
-          ${field('c-years', 'Years', text(C, 'years', '3', 4, 'data-num="1" inputmode="numeric"'))}</div>
-        ${field('c-company', st === 'freelancer' ? 'Kind of clients' : 'Company', text(C, 'company', st === 'freelancer' ? 'Startups, agencies' : 'Optional'), 'optional')}
-        ${field('c-dailyWork', 'What you do on a normal day', `<textarea class="in" id="c-dailyWork" data-c="dailyWork" rows="3" maxlength="800" placeholder="Build React screens from Figma, fix bugs, write unit tests, review PRs">${esc(C.dailyWork)}</textarea>`)}`
-      : st === 'gap' ? `
-        <div class="ask-row">${field('c-role', 'Your last role', text(C, 'role', 'Software engineer'))}${field('c-years', 'Years before the break', text(C, 'years', '2', 4, 'data-num="1" inputmode="numeric"'))}</div>
-        <div class="grid2">${field('c-gapMonths', 'Length of the break', text(C, 'gapMonths', 'Months, e.g. 18', 4, 'data-num="1" inputmode="numeric"'))}
-          ${field('c-gapReason', 'Reason', `<select class="in" id="c-gapReason" data-c="gapReason"><option value="">Prefer not to say</option>${GAP_REASONS.map(r => `<option ${C.gapReason === r ? 'selected' : ''}>${r}</option>`).join('')}</select>`, 'optional')}</div>
-        <p class="note">A break is common. The plan will focus on getting your skills current and explaining the gap with confidence.</p>`
-      : `<div class="grid2">${field('c-gradYear', st === 'student' ? 'Year you graduate' : 'Year you graduated', text(C, 'gradYear', '2026', 4, 'data-num="1" inputmode="numeric"'))}
-          ${field('c-role', 'Internship or part-time role', text(C, 'role', 'Optional'), 'optional')}</div>`;
+      // Every situation gets the same shape (a role with a short number beside it, one full-width line, then a few sentences),
+      // so the card keeps its size and nothing jumps when someone switches between options.
+      const v = FIELDS[st] || FIELDS.working;
+      f.innerHTML = `
+        <div class="ask-row">${field('c-role', v.role, text(C, 'role', v.rolePh), v.roleOpt ? 'optional' : '')}${field(v.numKey === 'gradYear' ? 'c-gradYear' : 'c-years', v.num, text(C, v.numKey, v.numPh, 4, 'data-num="1" inputmode="numeric"'))}</div>
+        ${st === 'gap' ? `<div class="grid2">${field('c-gapMonths', 'Length of the break', text(C, 'gapMonths', 'Months, e.g. 18', 4, 'data-num="1" inputmode="numeric"'))}
+          ${field('c-gapReason', 'Reason', `<select class="in" id="c-gapReason" data-c="gapReason"><option value="">Prefer not to say</option>${GAP_REASONS.map(r => `<option ${C.gapReason === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`, 'optional')}</div>`
+        : field('c-company', v.company, text(C, 'company', v.companyPh), 'optional')}
+        ${field('c-dailyWork', v.daily, `<textarea class="in" id="c-dailyWork" data-c="dailyWork" rows="3" maxlength="800" placeholder="${esc(v.dailyPh)}">${esc(C.dailyWork)}</textarea>`, v.dailyHint)}`;
       bindText(f, C, persist);
       $$('select[data-c]', f).forEach(s => s.onchange = () => { C[s.dataset.c] = s.value; persist(); });
     };
