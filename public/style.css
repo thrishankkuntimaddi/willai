@@ -272,7 +272,7 @@ a.asof:hover{text-decoration:none;color:var(--t1)}
 
 /* the analyse cycle */
 .wizard{margin-top:28px;max-width:600px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px 24px 20px;box-shadow:0 8px 24px rgba(31,27,22,.05)}
-.wz-steps{display:flex;gap:4px;margin:0 0 20px;padding:0;list-style:none;overflow-x:auto}
+.wz-steps{display:flex;gap:4px;margin:0 0 16px;padding:0;list-style:none;overflow-x:auto}
 .wz-steps li{flex:1;min-width:0}
 .wz-steps button{width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:0 0 8px;border-bottom:2px solid var(--line);font-size:12px;color:var(--t3);text-align:left}
 .wz-steps button .n{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:500 11px/1 var(--mono);background:var(--raised);color:var(--t2)}
@@ -283,17 +283,18 @@ a.asof:hover{text-decoration:none;color:var(--t1)}
 .wz-steps button.done{color:var(--t2);border-color:var(--human)}
 .wz-steps button.done .n{background:var(--human);color:#fff}
 .wz-steps button:disabled{cursor:default}
-.wz-h{font:400 26px/1.2 var(--serif);margin-bottom:16px}
-.wz-fields{display:flex;flex-direction:column;gap:16px}
-.wz-foot{display:flex;align-items:center;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+.wz-h{font:400 24px/1.2 var(--serif);margin-bottom:12px}
+.wz-fields{display:flex;flex-direction:column;gap:14px}
+.wz-foot{display:flex;align-items:center;gap:12px;margin-top:12px;padding-top:14px;border-top:1px solid var(--line);background:var(--card)}
 .wz-foot #wz-next{margin-left:auto}
 .wz-foot .i{width:14px;height:14px}
+.wz-foot [hidden]{display:none}   /* no Back on the first step */
 .ask-row{display:grid;grid-template-columns:1fr 120px;gap:12px;align-items:end}
 .ask-row .f{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .status-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-.status{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px 14px;border:1px solid var(--line2);border-radius:10px;background:#fff;transition:border-color .15s var(--ease),background-color .15s var(--ease)}
+.status{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;padding:9px 12px;min-width:0;border:1px solid var(--line2);border-radius:10px;background:#fff;transition:border-color .15s var(--ease),background-color .15s var(--ease)}
 .status b{font-weight:500;font-size:14px}
-.status span{font-size:12px;color:var(--t3);line-height:1.35}
+.status span{font-size:12px;color:var(--t3);line-height:1.35;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* hover only tints the card; the dark ring is kept for the selected one, so the two never look alike */
 .status:hover{background:var(--raised)}
 .status:focus-visible{outline:2px solid var(--t1);outline-offset:2px;border-radius:10px}
@@ -330,9 +331,47 @@ span.f span,label.f span{font-weight:400;color:var(--t3)}
 input[type=range]{width:100%;accent-color:var(--t1)}
 
 /* home side and band */
-.hero{align-items:start;padding-top:56px;min-height:0}
-.hero-copy{padding-top:56px}   /* fixed, not centred: the form changes height from step to step */
+.hero{align-items:start;padding-top:24px;padding-bottom:32px;min-height:0}
 .hero .wizard{margin-top:0;max-width:none}
+/* Laptop and desktop: one window, laid out like the sketch. A one-line headline under the site header; a wide form
+   that fills the screen, steps 1-5 down its left side, the questions on the right, "1 of 5 · Back · Next" bottom right;
+   the openings line small underneath. The hero is exactly the window's height, so Next is always on screen. */
+@media (min-width:961px){
+  .hero{display:flex;flex-direction:column;align-items:stretch;gap:14px;height:calc(100vh - 61px);min-height:500px;padding:18px 0 14px}
+  .hero-copy{padding-top:0;flex:none}
+  .hero h1{font-size:clamp(24px,2.3vw,32px);line-height:1.2;letter-spacing:-.015em;max-width:none}
+  .hero>.lede{flex:none;margin:0;font-size:14px;line-height:20px;color:var(--t3);max-width:none}
+  .hero>.lede b{color:var(--t2)}
+  .hero .wizard{flex:1 1 auto;min-height:0;max-width:none;display:grid;grid-template-columns:200px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto auto;column-gap:32px;padding:24px 28px 20px}
+  /* steps down the left */
+  .hero .wz-steps{grid-column:1;grid-row:1/-1;flex-direction:column;gap:4px;margin:0;padding:0 24px 0 0;border-right:1px solid var(--line);overflow:visible}
+  .hero .wz-steps li{flex:none}
+  .hero .wz-steps button{flex-direction:row;align-items:center;gap:12px;padding:10px 12px;border-bottom:0;border-left:2px solid var(--line);border-radius:0 8px 8px 0;font-size:14px}
+  .hero .wz-steps button:not(:disabled):hover{background:var(--raised)}
+  .hero .wz-steps button .n{width:24px;height:24px;font-size:12px;flex:none}
+  .hero .wz-steps button.on{background:var(--raised);border-left-color:var(--t1)}
+  .hero .wz-steps button.done{border-left-color:var(--human)}
+  /* the questions on the right; a long step scrolls here, never the page */
+  .hero .wz-body{grid-column:2;grid-row:1;min-height:0;overflow:auto;margin:0 -8px;padding:0 8px 4px;scrollbar-width:thin}
+  .hero #wz-err{grid-column:2;grid-row:2}
+  .hero .wz-foot{grid-column:2;grid-row:3;justify-content:flex-end;gap:12px;margin-top:12px}
+  .hero .wz-foot #wz-count{order:0;margin-right:4px}
+  .hero .wz-foot #wz-back{order:1}
+  .hero .wz-foot #wz-next{order:2;margin-left:0;min-width:120px;justify-content:center}
+  .hero .status-grid{grid-template-columns:repeat(6,minmax(0,1fr))}
+  /* every step uses the width: two columns, with the fields that need room spanning both */
+  .hero .wz-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px 24px;align-items:start}
+  .hero .wz-fields>*{grid-column:1/-1;min-width:0}
+  .hero [data-step=skills] .wz-fields>:nth-child(-n+2),
+  .hero [data-step=goal] .wz-fields>:nth-child(-n+2),
+  .hero [data-step=plan] .wz-fields>:nth-child(2),.hero [data-step=plan] .wz-fields>:nth-child(3){grid-column:auto}
+  .hero #st-fields{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px 24px;align-items:end}
+  .hero #st-fields>*{grid-column:auto}
+  .hero #st-fields>:last-child{grid-column:1/-1}
+  .hero .wz-fields .grid2{gap:16px 24px}                     /* same gutter as the columns above, so edges line up */
+}
+
+
 /* reports sit below the hero: your latest beside ones people shared */
 .home-reports{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:start;padding:8px 0 48px}
 .home-reports:empty{display:none}
@@ -636,6 +675,9 @@ details.src .rowlist li{break-inside:avoid;padding:4px 0;border-top:0}
   details.src .rowlist{columns:2}
   .hero{grid-template-columns:1fr;min-height:0;padding:48px 0;gap:32px}
   .home-reports{grid-template-columns:1fr}
+  .hero-copy{order:0}
+  .hero>.lede{order:1;margin-top:-16px}
+  .hero .wizard{order:2}
   .hero-copy{padding-top:0}
   .hero h1{font-size:40px}
   .cols,.rep-h{grid-template-columns:1fr}
@@ -651,6 +693,8 @@ details.src .rowlist li{break-inside:avoid;padding:4px 0;border-top:0}
   .ask-row{grid-template-columns:1fr 96px}
   .map-tools,.map-search,.map-search .in{width:100%}
   .wizard{padding:16px}
+  /* phones: Back/Next stay on screen while you fill a long step */
+  .wz-foot{position:sticky;bottom:0;z-index:3;margin:12px -16px -16px;padding:12px 16px;border-radius:0 0 16px 16px}
   .wz-steps .l{display:none}
   .rep-top h1{font-size:32px}
   .glance b{font-size:44px}

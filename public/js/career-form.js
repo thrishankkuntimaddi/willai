@@ -59,7 +59,7 @@ export const BIND = {
         ${st === 'gap' ? `<div class="grid2">${field('c-gapMonths', 'Length of the break', text(C, 'gapMonths', 'Months, e.g. 18', 4, 'data-num="1" inputmode="numeric"'))}
           ${field('c-gapReason', 'Reason', `<select class="in" id="c-gapReason" data-c="gapReason"><option value="">Prefer not to say</option>${GAP_REASONS.map(r => `<option ${C.gapReason === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>`, 'optional')}</div>`
         : field('c-company', v.company, text(C, 'company', v.companyPh), 'optional')}
-        ${field('c-dailyWork', v.daily, `<textarea class="in" id="c-dailyWork" data-c="dailyWork" rows="3" maxlength="800" placeholder="${esc(v.dailyPh)}">${esc(C.dailyWork)}</textarea>`, v.dailyHint)}`;
+        ${field('c-dailyWork', v.daily, `<textarea class="in" id="c-dailyWork" data-c="dailyWork" rows="2" maxlength="800" placeholder="${esc(v.dailyPh)}">${esc(C.dailyWork)}</textarea>`, v.dailyHint)}`;
       bindText(f, C, persist);
       $$('select[data-c]', f).forEach(s => s.onchange = () => { C[s.dataset.c] = s.value; persist(); });
     };
@@ -91,6 +91,7 @@ export const BIND = {
     $('#reloc', root).onchange = e => { C.relocate = e.target.checked; persist(); };
     const { countries } = await data('cities');
     const sel = $('#c-country', root);
+    if (!sel) return;                       // the person already moved on to another step while the list loaded
     sel.innerHTML = `<option value="">Anywhere</option>${Object.keys(countries).map(c => `<option ${c === C.country ? 'selected' : ''}>${c}</option>`).join('')}`;
     sel.onchange = () => { C.country = sel.value; persist(); };
   },

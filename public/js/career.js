@@ -3,9 +3,9 @@ import { S, signedIn } from './core.js';
 
 export const STATUSES = [
   { id: 'working', label: 'Working', hint: 'In a job now' },
-  { id: 'fresher', label: 'Fresher', hint: 'Graduated, looking for a first job' },
+  { id: 'fresher', label: 'Fresher', hint: 'First job search' },
   { id: 'student', label: 'Student', hint: 'Still studying' },
-  { id: 'gap', label: 'Career break', hint: 'Coming back after time away' },
+  { id: 'gap', label: 'Career break', hint: 'Back after a break' },
   { id: 'between', label: 'Between jobs', hint: 'Recently left a job' },
   { id: 'freelancer', label: 'Freelancer', hint: 'Working for clients' },
 ];

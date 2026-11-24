@@ -20,7 +20,6 @@ export default async function home() {
   app().innerHTML = `<section class="hero enter">
     <div class="hero-copy">
       <h1>See what AI changes in your tech career, and the fastest way forward</h1>
-      <p class="lede">Working, fresher, student or back from a break: tell us where you are. We compare you with <b id="lede-n">${t ? num(t.total) + ' live openings' : 'today’s openings'}</b> and build a plan with real resources, for 30 days or 6 months.</p>
     </div>
     <form class="wizard" id="wz" novalidate aria-label="Build your report">
       <ol class="wz-steps" id="wz-steps"></ol>
@@ -28,6 +27,7 @@ export default async function home() {
       <div id="wz-err" role="alert"></div>
       <div class="wz-foot"><button type="button" class="btn" id="wz-back">${icon('left')}Back</button><span class="mono t3" id="wz-count"></span><button class="btn pri" id="wz-next"></button></div>
     </form>
+    <p class="lede">Working, fresher, student or back from a break: tell us where you are. We compare you with <b id="lede-n">${t ? num(t.total) + ' live openings' : 'today’s openings'}</b> and build a plan with real resources, for 30 days or 6 months.</p>
   </section>
   <section id="preview" class="home-reports" aria-label="Reports"></section>
   <section class="people-band" id="people" aria-label="People moving through tech right now"></section>`;
@@ -67,10 +67,17 @@ function drawStep(focus) {
   $('#wz-err').innerHTML = '';
   const body = $('#wz-body');
   const sec = SECTIONS[STEPS[step].id];
+  body.dataset.step = STEPS[step].id;          // each step has its own two-column layout on wide screens
   body.innerHTML = `<h2 class="wz-h">${esc(STEPS[step].title)}</h2><div class="wz-fields">${sec.html(C)}</div>`;
   sec.bind(body, C, persist);
   body.classList.remove('enter'); void body.offsetWidth; body.classList.add('enter');
-  if (focus) body.querySelector('input,textarea,button')?.focus({ preventScroll: true });
+  if (focus) {
+    body.scrollTop = 0;
+    // a new step starts at its top: bring the form back into view if the page was scrolled past it (phones)
+    const top = $('#wz').getBoundingClientRect().top;
+    if (top < 0 || top > innerHeight * 0.6) $('#wz').scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    body.querySelector('input,textarea,button')?.focus({ preventScroll: true });
+  }
 }
 
 /* ---------------- right column: real reports ---------------- */
