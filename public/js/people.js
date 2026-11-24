@@ -225,7 +225,7 @@ export async function mountPeople(el) {
   const net = new Net($('.band-canvas', el), {
     height: innerWidth < 720 ? 240 : 280, nodes: [...fams, ...skills, ...people], edges: [...edges, ...pe], ambient: people.length ? 0 : 1600,
     label: n => n.kind === 'family',
-    tooltip: n => n.kind === 'person' ? `<b>${esc(n.s.role)}${n.s.target && n.s.target !== n.s.role ? ' → ' + esc(n.s.target) : ''}</b><span>${[n.s.yearsBand, n.s.city || n.s.country].filter(Boolean).map(esc).join(' · ')}${n.s.readiness != null ? ` · readiness ${n.s.readiness}` : ''}</span>`
+    tooltip: n => n.kind === 'person' ? `<b>${esc(n.s.role)}${n.s.target && n.s.target !== n.s.role ? ' → ' + esc(n.s.target) : ''}</b><span>${[n.s.yearsBand, n.s.city || n.s.country].filter(Boolean).map(esc).join(' · ')}${Number.isFinite(+n.s.readiness) && n.s.readiness != null ? ` · readiness ${Math.round(+n.s.readiness)}` : ''}</span>`
       : n.kind === 'family' ? `<b>${esc(n.label)}</b><span>${num(n.v)} openings</span>` : `<b>${esc(n.label)}</b>`,
     onClick: n => { if (n.kind === 'family') location.hash = `#/jobs?family=${encodeURIComponent(n.key)}`; },
   });

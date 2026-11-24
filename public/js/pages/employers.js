@@ -37,7 +37,8 @@ export default async function employers() {
           <div class="full"><label class="f" for="description">Description</label><textarea class="in" id="description" required minlength="80" maxlength="6000" rows="7" placeholder="What the person will do, the skills you need, and who would fit even without the exact title"></textarea></div>
           <div class="full"><label class="f" for="applyUrl">Where to apply</label><input class="in" id="applyUrl" required maxlength="500" placeholder="https://yourcompany.com/careers/123 or mailto:hr@yourcompany.com"></div>
         </div>
-        <p class="note" style="margin-top:16px">${S.user.emailVerified && domain && !/gmail|yahoo|hotmail|outlook|rediffmail|icloud|proton/.test(domain) ? `Signed in as <b>${esc(S.user.email)}</b>. Roles whose company or apply link matches <b>${esc(domain)}</b> get the verified employer badge.` : 'Sign in with a confirmed work email on your company’s domain to get the verified employer badge.'} Never ask applicants for money or bank details.</p>
+        <p class="note" style="margin-top:16px">${!S.user.emailVerified ? `<b>Confirm your email address to post jobs.</b> We sent a link to ${esc(S.user.email || 'your inbox')}. <button type="button" class="link" id="rv">Send it again</button>`
+          : domain && !/gmail|yahoo|hotmail|outlook|live|rediffmail|icloud|proton|zoho|yandex|gmx|aol/.test(domain) ? `Signed in as <b>${esc(S.user.email)}</b>. Roles posted for the company named by <b>${esc(domain)}</b>, with an apply link on that site or an applicant-tracking system, get the verified employer badge.` : 'Sign in with a confirmed work email on your company’s domain to get the verified employer badge.'} Never ask applicants for money or bank details.</p>
         <div class="ask-foot" style="margin-top:16px"><button class="btn pri">Post job</button></div><div id="perr"></div>
       </form>
       <section class="card"><h2>Posted by you</h2><p class="sub">${esc(S.profile.company || '')}</p><ul class="rowlist" id="mine"><li class="t3">Loading</li></ul></section>
@@ -54,6 +55,7 @@ export default async function employers() {
     });
   };
   draw();
+  if ($('#rv')) $('#rv').onclick = async () => { try { await S.fb.resendVerification(); toast('Confirmation link sent'); } catch (e) { toast(e.code === 'auth/too-many-requests' ? 'Already sent. Check your inbox and spam folder.' : 'Could not send the link. Try again later.'); } };
   $('#pj').onsubmit = async e => {
     e.preventDefault();
     const btn = e.target.querySelector('button.pri'); btn.disabled = true; $('#perr').innerHTML = '';

@@ -3,7 +3,7 @@ import { initializeApp } from 'https://www.gstatic.com/firebasejs/13.4.0/firebas
 import {
   getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, createUserWithEmailAndPassword,
   signInWithEmailAndPassword, sendPasswordResetEmail, updateProfile, signOut, deleteUser, reauthenticateWithPopup,
-  reauthenticateWithCredential, EmailAuthProvider,
+  reauthenticateWithCredential, EmailAuthProvider, sendEmailVerification,
 } from 'https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js';
 import {
   getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where, limit, getDocs, serverTimestamp, orderBy, writeBatch,
@@ -36,7 +36,18 @@ export const onUser = f => { subs.add(f); if (ready) f(current, profile); return
 export const user = () => current;
 export const userProfile = () => profile;
 export const isReady = () => ready;
-export const token = async () => (current ? current.getIdToken() : null);
+// An unconfirmed account checks back (at most every 30 s) so the server sees email_verified as soon as the link is clicked.
+let lastReload = 0;
+export const token = async () => {
+  if (!current) return null;
+  if (!current.emailVerified && Date.now() - lastReload > 30e3) {
+    lastReload = Date.now();
+    await current.reload().catch(() => {});
+    if (current.emailVerified) { emit(); return current.getIdToken(true); }
+  }
+  return current.getIdToken();
+};
+export const resendVerification = async () => { if (current && !current.emailVerified) await sendEmailVerification(current); };
 
 /* ---------- auth ---------- */
 const friendly = e => ({
@@ -53,6 +64,7 @@ export const signUpEmail = wrap(async ({ name, email, password, role, company })
   pending = { role, company };
   const cred = await createUserWithEmailAndPassword(auth, email, password);
   if (name) await updateProfile(cred.user, { displayName: name });
+  sendEmailVerification(cred.user).catch(e => console.warn('verify email', e.code || e.message));   // confirmed emails unlock posting and counted reports
   await setDoc(doc(db, 'users', cred.user.uid), { role, name: name || '', email, company: company || '', createdAt: serverTimestamp() });
   profile = (await getDoc(doc(db, 'users', cred.user.uid))).data(); emit();
 });
@@ -137,10 +149,16 @@ const shareId = rid => `${uidOr()}_${rid}`;
 export const shareReport = wrap(async (rid, card) => setDoc(doc(db, 'shared_reports', shareId(rid)), { ...strip(card), ownerUid: uidOr(), createdAt: serverTimestamp() }));
 export const unshareReport = wrap(async rid => deleteDoc(doc(db, 'shared_reports', shareId(rid))));
 export const isShared = async rid => { try { return (await getDoc(doc(db, 'shared_reports', shareId(rid)))).exists(); } catch { return false; } };
+// Public list: the latest card per person, so one account sharing many reports cannot fill the home page.
 export const listShared = async (n = 40) => {
-  try { return (await getDocs(query(collection(db, 'shared_reports'), orderBy('createdAt', 'desc'), limit(n)))).docs.map(d => ({ id: d.id, ...d.data() })); }
-  catch (e) { console.warn('listShared', e.code || e.message); return []; }
+  try {
+    const seen = new Set();
+    return (await getDocs(query(collection(db, 'shared_reports'), orderBy('createdAt', 'desc'), limit(n * 3)))).docs.map(d => ({ id: d.id, ...d.data() }))
+      .filter(r => !seen.has(r.ownerUid) && seen.add(r.ownerUid)).slice(0, n);
+  } catch (e) { console.warn('listShared', e.code || e.message); return []; }
 };
+export const listMyShared = wrap(async () => (await getDocs(query(collection(db, 'shared_reports'), where('ownerUid', '==', uidOr())))).docs
+  .map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)));
 
 /* ---------- dismissed jobs (feeds recommendations) ---------- */
 export const dismissJob = wrap(async j => setDoc(doc(db, 'users', uidOr(), 'dismissed_jobs', jobKey(j.id)), { family: String(j.family || '').slice(0, 40), at: serverTimestamp() }));

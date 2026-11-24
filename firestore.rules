@@ -70,17 +70,26 @@ service cloud.firestore {
     }
 
     // Reports people chose to share anonymously. Anyone can read them; only allow-listed, non-identifying fields.
+    // Numbers must be real numbers in range (they are drawn as bar heights and scores), and createdAt must be the server's clock,
+    // so a card cannot be dated into the future to sit at the top of the home page forever.
+    function intIn(v, lo, hi) { return v is int && v >= lo && v <= hi; }
+    function nullOrIntIn(m, k, lo, hi) { return !(k in m) || m[k] == null || intIn(m[k], lo, hi); }
     match /shared_reports/{sid} {
       allow read: if true;
       allow create, update: if signedIn() && request.resource.data.ownerUid == request.auth.uid && sid.matches(request.auth.uid + '_.+')
         && request.resource.data.keys().hasOnly(['ownerUid', 'role', 'status', 'yearsBand', 'country', 'city', 'target', 'family', 'exposure', 'readiness',
              'nearOpenings', 'tasks', 'roles', 'planDays', 'phases', 'takeaways', 'rating', 'createdAt'])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.status in ['working', 'fresher', 'student', 'gap', 'freelancer', 'between']
+        && optStr(request.resource.data, 'yearsBand', 20) && optStr(request.resource.data, 'family', 40)
+        && intIn(request.resource.data.exposure, 0, 100) && nullOrIntIn(request.resource.data, 'readiness', 0, 100)
+        && nullOrIntIn(request.resource.data, 'nearOpenings', 0, 10000000) && intIn(request.resource.data.planDays, 7, 365)
         && str(request.resource.data.role, 80) && str(request.resource.data.target, 80) && str(request.resource.data.country, 60) && str(request.resource.data.city, 60)
         && request.resource.data.tasks is list && request.resource.data.tasks.size() <= 9
         && request.resource.data.roles is list && request.resource.data.roles.size() <= 5
         && request.resource.data.phases is list && request.resource.data.phases.size() <= 6
         && request.resource.data.takeaways is list && request.resource.data.takeaways.size() <= 3
-        && request.resource.data.rating is number && request.resource.data.rating >= 1 && request.resource.data.rating <= 5;
+        && intIn(request.resource.data.rating, 1, 5);
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
     }
 

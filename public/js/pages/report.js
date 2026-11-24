@@ -1,5 +1,5 @@
 // The report: three numbers and three takeaways first, then six short chapters, each headline-first with detail on demand.
-import { S, $, $$, app, esc, num, pct, icon, toast, level, date, signedIn, ranked } from '../core.js';
+import { S, $, $$, app, esc, safeUrl, num, pct, icon, toast, level, date, signedIn, ranked } from '../core.js';
 import { STATUS_LABEL } from '../career.js';
 import { upgrade, ledger, ledgerKey, readinessWord } from '../report-cards.js';
 import { jobRow, bindJobActions } from '../jobs-ui.js';
@@ -80,7 +80,7 @@ export default async function report([id]) {
       ${fr.timeline ? `<p class="mono t3">${icon('clock')} ${esc(fr.timeline)}</p>` : ''}
       <p>${esc(fr.why)}</p>
       ${fr.gap?.length ? `<p class="gap"><b>Missing:</b> ${fr.gap.map(esc).join(', ')}</p>` : ''}
-      <div class="openings">${(fr.evidence || []).map(e => `<a href="${esc(e.url)}" target="_blank" rel="noopener noreferrer">${icon('ext')}<span>${esc(e.title)} · ${esc(e.company)}</span></a>`).join('')}
+      <div class="openings">${(fr.evidence || []).map(e => `<a href="${safeUrl(e.url)}" target="_blank" rel="noopener noreferrer">${icon('ext')}<span>${esc(e.title)} · ${esc(e.company)}</span></a>`).join('')}
         <a href="#/jobs?q=${encodeURIComponent(fr.title)}">${icon('search')}<span>Search openings for this role</span></a></div>
     </article>`).join('')}</div>
   </section>
@@ -95,7 +95,7 @@ export default async function report([id]) {
         <button class="box" data-k="${i}.${j}" aria-pressed="${done.has(`${i}.${j}`)}" aria-label="Mark done: ${esc(st.action)}">${icon('check')}</button>
         <div class="pbody"><p class="tx">${esc(st.action)}</p>
           <p class="meta">${st.hours ? `<span>${icon('clock')}${st.hours} h</span>` : ''}${st.deliverable ? `<span><b>Show:</b> ${esc(st.deliverable)}</span>` : ''}</p>
-          ${st.resources?.length ? `<p class="res">${st.resources.map(rs => `<a href="${esc(rs.url)}" target="_blank" rel="noopener noreferrer">${icon(rs.direct ? 'ext' : 'search')}${esc(rs.title)}${rs.provider ? `<span class="t3"> · ${esc(rs.provider)}</span>` : ''}${rs.free ? '' : '<span class="tagq">paid</span>'}</a>`).join('')}</p>` : ''}
+          ${st.resources?.length ? `<p class="res">${st.resources.map(rs => `<a href="${safeUrl(rs.url)}" target="_blank" rel="noopener noreferrer">${icon(rs.direct ? 'ext' : 'search')}${esc(rs.title)}${rs.provider ? `<span class="t3"> · ${esc(rs.provider)}</span>` : ''}${rs.free ? '' : '<span class="tagq">paid</span>'}</a>`).join('')}</p>` : ''}
         </div></div>`).join('')}</div></li>`).join('')}</ol>
   </section>
 
