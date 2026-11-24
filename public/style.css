@@ -136,11 +136,20 @@ textarea.in{height:auto;min-height:96px;padding:8px 12px;resize:vertical;line-he
 /* loading */
 .loading{max-width:480px;margin:96px auto}
 .loading h2{font:400 32px/1.15 var(--serif);margin-bottom:24px}
-.steps li{padding:8px 0;border-top:1px solid var(--line);color:var(--t3);font-size:14px;display:flex;gap:10px;align-items:center}
-.steps li .i{opacity:0}
-.steps li.on{color:var(--t1)}
-.steps li.done{color:var(--t2)}
-.steps li.done .i{opacity:1;color:var(--human)}
+/* report progress: waiting steps are numbered and quiet, the current one is highlighted with a turning ring, done ones get a solid tick */
+.lsteps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.lsteps li{display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--t3);font-size:15px;transition:background-color .3s var(--ease),border-color .3s var(--ease),color .3s var(--ease)}
+.lsteps .mk{position:relative;width:26px;height:26px;flex:none;border-radius:50%;display:grid;place-items:center;border:1.5px solid var(--line2);font:500 12px/1 var(--mono);color:var(--t3);transition:background-color .3s var(--ease),border-color .3s var(--ease)}
+.lsteps .mk .i{display:none;width:14px;height:14px;stroke-width:2.6}
+.lsteps li.on{color:var(--t1);font-weight:500;border-color:var(--accent);background:var(--accent-soft);box-shadow:0 4px 14px rgba(39,71,201,.12)}
+.lsteps li.on .mk{border-color:rgba(39,71,201,.25);color:var(--accent)}
+.lsteps li.on .mk::after{content:"";position:absolute;inset:-1.5px;border-radius:50%;border:2px solid var(--accent);border-right-color:transparent;border-bottom-color:transparent;animation:lspin .9s linear infinite}
+.lsteps li.done{color:var(--t2)}
+.lsteps li.done .mk{background:var(--human);border-color:var(--human);color:#fff}
+.lsteps li.done .mk b{display:none}
+.lsteps li.done .mk .i{display:block}
+@keyframes lspin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.lsteps li.on .mk::after{animation:none;border-right-color:var(--accent)}}
 
 /* report */
 .rep-h{display:grid;grid-template-columns:minmax(0,1fr) 240px;gap:48px;padding:48px 0 32px;border-bottom:1px solid var(--line)}
@@ -661,8 +670,49 @@ details.src summary{display:flex;justify-content:space-between;gap:12px;padding:
 details.src summary b{font-weight:500;text-transform:capitalize}
 details.src .rowlist{padding-bottom:12px;columns:3;column-gap:32px}
 details.src .rowlist li{break-inside:avoid;padding:4px 0;border-top:0}
-.loading.wide{max-width:760px}
-.load-net{margin:0 0 16px;border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden}
+.loading.wide{max-width:none;margin:0;padding:24px 0 16px}
+.load-h{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;margin-bottom:20px;flex-wrap:wrap}
+.load-h h2{margin:4px 0 0}
+.load-time{display:flex;align-items:center;gap:6px;font-size:13px}
+.load-time .i{width:14px;height:14px}
+.load-time #lt{color:var(--t1);font-variant-numeric:tabular-nums}
+.load-time .sep{opacity:.5}
+.load-body{display:grid;grid-template-columns:340px minmax(0,1fr);gap:28px;align-items:stretch}
+.load-side{display:flex;flex-direction:column;min-height:0}
+.load-bar{height:6px;border-radius:3px;background:var(--raised);overflow:hidden}
+.load-bar i{display:block;height:100%;width:0;border-radius:3px;background:var(--accent);transition:width .9s var(--ease)}
+.load-count{font-size:12px;color:var(--t2);margin:8px 0 12px}
+.load-note{font-size:13px;margin-top:auto;padding-top:14px}
+.load-main{display:flex;flex-direction:column;gap:14px;min-height:0;min-width:0}
+.load-net canvas.net{position:absolute;inset:0}   /* the map follows its box instead of setting the box's height */
+.load-net{flex:1 1 auto;min-height:220px;border:1px solid var(--line);border-radius:14px;background:var(--card);overflow:hidden}
+/* while you wait: one live fact about the target role at a time, and the newest openings for it */
+.load-wait{flex:none;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px}
+.load-wait[hidden]{display:none}
+.lw-fact,.lw-new{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:16px 18px;min-width:0}
+.lw-k{font-size:12px;margin-bottom:6px}
+.lw-v{font:400 19px/1.35 var(--serif);color:var(--t2);min-height:52px}
+.lw-v b{font-weight:500;color:var(--t1)}
+.lw-fact.lw-show .lw-k,.lw-fact.lw-show .lw-v{animation:lwin .45s var(--ease)}
+@keyframes lwin{from{opacity:0;transform:translateY(4px)}}
+.lw-dots{display:flex;gap:6px;margin-top:10px}
+.lw-dots i{width:6px;height:6px;border-radius:50%;background:var(--line2);transition:background-color .3s,width .3s}
+.lw-dots i.on{background:var(--accent);width:16px;border-radius:3px}
+.lw-new ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.lw-new li{display:flex;flex-direction:column;font-size:13px;line-height:1.35;min-width:0}
+.lw-new li b{font-weight:500;color:var(--t1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lw-new li span{color:var(--t3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* laptop and desktop: the whole wait fits in one window */
+@media (min-width:961px){
+  .loading.wide{height:calc(100vh - 61px);min-height:520px;display:flex;flex-direction:column}
+  .load-body{flex:1 1 auto;min-height:0}
+  .load-side{overflow:auto}
+}
+@media (max-width:960px){
+  .load-body{grid-template-columns:1fr}
+  .load-net{height:240px;flex:none}
+  .load-wait{grid-template-columns:1fr}
+}
 .note a{color:var(--accent-ink)}
 
 @media (max-width:960px){

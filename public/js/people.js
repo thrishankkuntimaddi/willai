@@ -8,8 +8,8 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 // a small seeded random, so the sphere is laid out the same way on every visit
 const seeded = str => { let h = 1779033703 ^ str.length; for (const ch of str) { h = Math.imul(h ^ ch.charCodeAt(0), 3432918353); h = h << 13 | h >>> 19; }
   return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; }; };
-const ZOOM = { min: 0.75, max: 5, home: 2.4 };   // camera distance from the centre; the sphere has radius 1
-const NEAR = 2.1;   // a dot this much bigger than at the centre is close enough to show its name (never at the default distance)
+const ZOOM = { min: 1.55, max: 4.2, home: 2.7 };   // camera distance from the globe's centre; the globe has radius 1
+const NEAR = 1.75;  // a dot this much bigger than at the centre is close enough to show its name (only once you zoom in)
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const rgba = (hex, a) => { const h = hex.replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
 let GRAPH = null;
@@ -25,8 +25,8 @@ export const famOf = t => (FAM_RX.find(([, rx]) => rx.test(t || '')) || ['softwa
 
 /* ---------------- the engine ---------------- */
 class Net {
-  constructor(el, { height = 420, nodes, edges, label = n => n.kind === 'family', ambient = 900, onClick, onFocus, tooltip, fixed = false, glyphs = [], sphere = false }) {
-    Object.assign(this, { el, height, label, ambient, onClick, onFocus, tooltip, fixed, sphere });
+  constructor(el, { height = 420, nodes, edges, label = n => n.kind === 'family', ambient = 900, onClick, onFocus, tooltip, fixed = false, glyphs = [], sphere = false, fill = false }) {
+    Object.assign(this, { el, height, label, ambient, onClick, onFocus, tooltip, fixed, sphere, fill });
     this.nodes = nodes.map(n => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, glow: 0 }));
     this.byId = new Map(this.nodes.map(n => [n.id, n]));
     this.edges = edges.map(e => ({ ...e, a: this.byId.get(e.a), b: this.byId.get(e.b) })).filter(e => e.a && e.b);
@@ -43,14 +43,16 @@ class Net {
     if (sphere) { this.place3d(); this.cam = { yaw: 0.5, pitch: 0.25, dist: ZOOM.home, vyaw: 0, vpitch: 0 }; this.idleUntil = 0; }
     else { this.place(); if (!fixed) for (let i = 0; i < 320; i++) this.step(1 - i / 340); }
     this.bind();
-    this.ro = new ResizeObserver(() => { const w = this.w; this.resize(); if (!sphere && Math.abs(w - this.w) > 2) { this.place(); if (!fixed) for (let i = 0; i < 200; i++) this.step(1 - i / 220); } this.draw(); }); this.ro.observe(el);
+    this.ro = new ResizeObserver(() => { const w = this.w, h = this.h; this.resize(); if (!sphere && (Math.abs(w - this.w) > 2 || Math.abs(h - this.h) > 2)) { this.place(); if (!fixed) for (let i = 0; i < 200; i++) this.step(1 - i / 220); } this.draw(); }); this.ro.observe(el);
     this.io = new IntersectionObserver(([en]) => { this.visible = en.isIntersecting; if (this.visible) this.loop(); }); this.io.observe(el);
     this.draw();
     if (!REDUCED) this.loop();
   }
   resize() {
     const dpr = Math.min(2, devicePixelRatio || 1);
-    this.w = this.el.clientWidth || 600; this.h = this.height;
+    this.w = this.el.clientWidth || 600;
+    if (this.fill) this.height = Math.max(160, this.el.clientHeight || this.height);   // fill: take the box's size, whatever it is now
+    this.h = this.height;
     this.canvas.width = this.w * dpr; this.canvas.height = this.h * dpr;
     this.canvas.style.width = this.w + 'px'; this.canvas.style.height = this.h + 'px';
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -173,37 +175,68 @@ class Net {
     ctx.beginPath(); ctx.moveTo(x - 5.2 * s, y + 5 * s); ctx.quadraticCurveTo(x - 5.2 * s, y - 1.2 * s, x, y - 1.2 * s); ctx.quadraticCurveTo(x + 5.2 * s, y - 1.2 * s, x + 5.2 * s, y + 5 * s); ctx.closePath(); ctx.fill();
   }
   /* ---------------- 3D sphere ---------------- */
-  // Role families spread evenly over a sphere; each skill and company sits near the roles that ask for it.
-  // A skill every role asks for (Git, Python) averages out towards the middle, so the busiest skills sit deep inside.
+  // Everything sits on the globe's surface. Role families spread evenly; each skill and company starts at the average of the
+  // roles that ask for it, then everything is relaxed apart a little so no two dots sit on top of each other.
   place3d() {
-    const rand = seeded('willai-sphere'), norm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
+    const rand = seeded('willai-globe'), norm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
     const fams = this.nodes.filter(n => n.kind === 'family');
     fams.forEach((n, i) => { const y = 1 - ((i + 0.5) / fams.length) * 2, r = Math.sqrt(1 - y * y), a = i * 2.399963; n.p = [Math.cos(a) * r, y, Math.sin(a) * r]; });
     const rest = this.nodes.filter(n => !n.p);
     for (const pass of [0, 1, 2]) for (const n of rest) {
       if (n.p) continue;
       const linked = this.adj.get(n.id).map(e => (e.a === n ? e.b : e.a)).filter(m => m.p && (pass > 0 || m.kind === 'family'));
-      if (!linked.length) { if (pass === 2) n.p = norm([rand() - 0.5, rand() - 0.5, rand() - 0.5]).map(x => x * 0.9); continue; }
+      if (!linked.length) { if (pass === 2) n.p = norm([rand() - 0.5, rand() - 0.5, rand() - 0.5]); continue; }
       const sum = linked.reduce((t, m) => [t[0] + m.p[0], t[1] + m.p[1], t[2] + m.p[2]], [0, 0, 0]);
-      const agree = Math.hypot(...sum) / linked.length / Math.max(...linked.map(m => Math.hypot(...m.p)));
-      const dir = norm(sum.map(x => x / linked.length + (rand() - 0.5) * 0.35));
-      n.p = dir.map(x => x * (n.kind === 'company' ? 1.1 : 0.42 + 0.5 * agree));
+      n.p = norm(sum.map(x => x / linked.length + (rand() - 0.5) * (n.kind === 'company' ? 0.5 : 0.35)));
     }
+    for (const n of rest) n.home = n.p.slice();
+    // relax: dots push apart along the surface; each is held loosely near where it started
+    for (let it = 0; it < 90; it++) {
+      for (const n of rest) {
+        let f = [0, 0, 0];
+        for (const m of this.nodes) {
+          if (m === n) continue;
+          const d = [n.p[0] - m.p[0], n.p[1] - m.p[1], n.p[2] - m.p[2]], d2 = d[0] ** 2 + d[1] ** 2 + d[2] ** 2;
+          if (d2 > 0.09) continue;
+          const k = (m.kind === 'family' ? 0.0022 : 0.0012) / (d2 + 0.002);
+          f = [f[0] + d[0] * k, f[1] + d[1] * k, f[2] + d[2] * k];
+        }
+        n.p = norm(n.p.map((x, i) => x + f[i] + (n.home[i] - x) * 0.02));
+      }
+    }
+    // links follow the globe: the shortest path along the surface (a great circle), lifted a little in the middle
+    for (const e of this.edges) {
+      const A = e.a.p, B = e.b.p, ang = Math.acos(clamp(A[0] * B[0] + A[1] * B[1] + A[2] * B[2], -0.999, 1)), sin = Math.sin(ang) || 1e-6;
+      const lift = 0.02 + 0.09 * ang / Math.PI, steps = Math.max(4, Math.ceil(ang / 0.12));
+      e.path3 = Array.from({ length: steps + 1 }, (_, k) => {
+        const t = k / steps, wa = Math.sin((1 - t) * ang) / sin, wb = Math.sin(t * ang) / sin, h = 1 + lift * Math.sin(Math.PI * t);
+        return norm([A[0] * wa + B[0] * wb, A[1] * wa + B[1] * wb, A[2] * wa + B[2] * wb]).map(x => x * h);
+      });
+    }
+    this.edgeOf = new Map();
+    for (const e of this.edges) { this.edgeOf.set(e.a.id + '|' + e.b.id, e); this.edgeOf.set(e.b.id + '|' + e.a.id, e); }
+    // latitude and longitude lines, so the globe reads as 3D while it turns
+    this.grid = [];
+    const ring = f => Array.from({ length: 65 }, (_, k) => f((k / 64) * TAU));
+    for (let lon = 0; lon < 6; lon++) { const a = (lon / 6) * Math.PI; this.grid.push(ring(t => [Math.cos(a) * Math.sin(t), Math.cos(t), Math.sin(a) * Math.sin(t)])); }
+    for (const lat of [-60, -30, 0, 30, 60]) { const y = Math.sin(lat * Math.PI / 180), r = Math.cos(lat * Math.PI / 180); this.grid.push(ring(t => [Math.cos(t) * r, y, Math.sin(t) * r])); }
   }
-  // camera: turn by yaw (around the vertical) and pitch, look at the centre from `dist`, perspective projection
-  project() {
+  // camera: turn by yaw and pitch, look at the centre from `dist`, perspective projection
+  proj(p) {
     const c = this.cam, cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
-    const R = Math.min(this.w, this.h) * 0.4, ox = this.w / 2, oy = this.h / 2;
+    const [x, y, z] = p, x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+    const s = ZOOM.home / Math.max(c.dist - z2, 0.05), R = Math.min(this.w, this.h) * 0.4;
+    return { x: this.w / 2 + x1 * s * R, y: this.h / 2 - y2 * s * R, z: z2, s };
+  }
+  project() {
+    const horizon = 1 / this.cam.dist;            // a point on the globe is in view when it faces the camera past this
     for (const n of this.nodes) {
-      const [x, y, z] = n.p, x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
-      const depth = c.dist - z2;
-      n.vis = depth > 0.15;
-      n.s = ZOOM.home / Math.max(depth, 0.15);
-      n.x = ox + x1 * n.s * R; n.y = oy - y2 * n.s * R; n.z = z2;
-      // the far side fades like fog; anything about to pass the camera fades out instead of filling the screen
-      n.fade = clamp((z2 - c.dist + ZOOM.home + 1.1) / 1.9, 0.1, 1) * (n.s > 5 ? clamp(1 - (n.s - 5) / 3, 0, 1) : 1);
-      if (n.fade < 0.02) n.vis = false;
+      const q = this.proj(n.p);
+      n.x = q.x; n.y = q.y; n.z = q.z; n.s = q.s;
+      n.front = q.z > horizon - 0.01; n.vis = true;
+      n.fade = n.front ? clamp(0.55 + (q.z - horizon) * 1.6, 0.55, 1) : 0.16;
     }
+    for (const e of this.edges) { e.pts = e.path3.map(p => { const q = this.proj(p); q.front = q.z > horizon; return q; }); e.front = e.pts[e.pts.length >> 1].front; }
   }
   // auto-turn, the drift after a fling, and easing towards a focused node. Called every frame.
   tick() {
@@ -227,66 +260,108 @@ class Net {
   focus(n) {
     const [x, y, z] = n.p, yaw = Math.atan2(-x, z), z1 = Math.hypot(x, z), pitch = clamp(Math.atan2(y, z1), -1.35, 1.35);
     const c = this.cam; c.vyaw = c.vpitch = 0;
-    c.target = { yaw: ((yaw % TAU) + TAU) % TAU, pitch, dist: n.kind === 'family' ? 2 : 1.75 };   // a fixed, comfortable distance, wherever you were
+    c.target = { yaw: ((yaw % TAU) + TAU) % TAU, pitch, dist: 2.1 };   // a fixed, comfortable distance, wherever you were
     this.focused = n; this.highlight = this.neighbors(n); this.emit(n.id, 3); this.hold(); this.onFocus?.(n);
   }
   unfocus() { if (!this.focused) return; this.focused = null; this.highlight = null; this.onFocus?.(null); this.draw(); }
+  // a point along a link's path, measured from node `a` (0) to the other end (1)
+  arcAt(e, a, t) {
+    const P = e.pts, n = P.length - 1, f = (e.a === a ? t : 1 - t) * n, i = Math.min(n - 1, Math.floor(f)), r = f - i;
+    return [P[i].x + (P[i + 1].x - P[i].x) * r, P[i].y + (P[i + 1].y - P[i].y) * r, P[i].front && P[i + 1].front];
+  }
   drawSphere() {
     this.project();
-    const { ctx, c } = this, hv = this.hover, nb = hv ? this.neighbors(hv) : null, hl = this.highlight;
-    ctx.clearRect(0, 0, this.w, this.h);
-    // a faint outline of the globe so the shape reads as a sphere
-    const rim = Math.min(this.w, this.h) * 0.4 * ZOOM.home / Math.sqrt(Math.max(0.01, this.cam.dist ** 2 - 1));
-    if (this.cam.dist > 1.25 && rim < Math.max(this.w, this.h)) {
-      const g = ctx.createRadialGradient(this.w / 2, this.h / 2, rim * 0.2, this.w / 2, this.h / 2, rim);
-      g.addColorStop(0, rgba(c.accent, 0.035)); g.addColorStop(1, rgba(c.accent, 0));
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(this.w / 2, this.h / 2, rim, 0, 7); ctx.fill();
-      ctx.strokeStyle = rgba(c.line, 0.08); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(this.w / 2, this.h / 2, rim, 0, 7); ctx.stroke();
+    const { ctx, c } = this, hv = this.hover, nb = hv ? this.neighbors(hv) : null, hl = this.highlight, F = this.focused;
+    const W = this.w, H = this.h, cx = W / 2, cy = H / 2, card = css('--card') || '#fdfbf7', raised = css('--raised') || '#efe9df';
+    const rim = Math.min(W, H) * 0.4 * ZOOM.home / Math.sqrt(this.cam.dist ** 2 - 1);
+    ctx.clearRect(0, 0, W, H);
+    const lit = e => (nb && (e.a === hv || e.b === hv)) || (hl && hl.has(e.a.id) && hl.has(e.b.id) && (!F || e.a === F || e.b === F));
+    // draw the near-side (front=true) or far-side (front=false) parts of a link
+    const arc = (e, front, style, width) => {
+      ctx.strokeStyle = style; ctx.lineWidth = width; ctx.beginPath(); let on = false;
+      for (let k = 1; k < e.pts.length; k++) {
+        const a = e.pts[k - 1], b = e.pts[k];
+        if ((a.front && b.front) === front || (!front && !(a.front && b.front))) { if (!on) ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); on = true; } else on = false;
+      }
+      ctx.stroke();
+    };
+    const dot = (n, r, alpha) => {
+      ctx.globalAlpha = alpha;
+      if (n.kind === 'company') {
+        ctx.fillStyle = card; ctx.strokeStyle = c.mute; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.stroke();
+      } else {
+        const base = n.kind === 'family' ? c.ink : '#8a8175';
+        const g = ctx.createRadialGradient(n.x - r * 0.35, n.y - r * 0.4, r * 0.1, n.x, n.y, r);
+        g.addColorStop(0, n.kind === 'family' ? '#6b6258' : '#c9c1b5'); g.addColorStop(1, base);
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    };
+    const size = n => this.r(n) * clamp(n.s, 0.5, 2.6) * (n.kind === 'family' ? 1.05 : 1.15);
+
+    // 1. the far side, seen faintly through the globe
+    for (const e of this.edges) arc(e, false, rgba(c.line, 0.05), 0.7);
+    for (const n of this.nodes) if (!n.front) dot(n, size(n) * 0.8, 0.22);
+
+    // 2. the globe: a shaded body lit from the top left, a soft rim, and the latitude/longitude lines on the near side
+    const body = ctx.createRadialGradient(cx - rim * 0.38, cy - rim * 0.42, rim * 0.05, cx, cy, rim);
+    body.addColorStop(0, rgba(card, 0.95)); body.addColorStop(0.7, rgba(card, 0.9)); body.addColorStop(1, rgba(raised, 0.95));
+    ctx.fillStyle = body; ctx.beginPath(); ctx.arc(cx, cy, rim, 0, 7); ctx.fill();
+    const halo = ctx.createRadialGradient(cx, cy, rim * 0.96, cx, cy, rim * 1.12);
+    halo.addColorStop(0, rgba(c.line, 0.05)); halo.addColorStop(1, rgba(c.line, 0));
+    ctx.fillStyle = halo; ctx.beginPath(); ctx.arc(cx, cy, rim * 1.12, 0, 7); ctx.fill();
+    ctx.strokeStyle = rgba(c.line, 0.14); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(cx, cy, rim, 0, 7); ctx.stroke();
+    const horizon = 1 / this.cam.dist;
+    ctx.strokeStyle = rgba(c.line, 0.055); ctx.lineWidth = 0.8;
+    for (const ring of this.grid) {
+      ctx.beginPath(); let on = false;
+      for (const p of ring) { const q = this.proj(p); if (q.z > horizon) { on ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); on = true; } else on = false; }
+      ctx.stroke();
     }
-    for (const e of this.edges) {
-      if (!e.a.vis || !e.b.vis) continue;
-      const f = Math.min(e.a.fade, e.b.fade);
-      const on = (nb && (e.a === hv || e.b === hv)) || (hl && hl.has(e.a.id) && hl.has(e.b.id) && (e.a === this.focused || e.b === this.focused || !this.focused));
-      ctx.strokeStyle = on ? rgba(c.accent, 0.35 + 0.45 * f) : rgba(c.line, (e.faint ? 0.05 : 0.11) * f);
-      ctx.lineWidth = on ? 1.5 : 0.8;
-      ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y); ctx.stroke();
-    }
+
+    // 3. the near side: links as arcs over the surface, then signals travelling along them, then the dots
+    for (const e of this.edges) if (!lit(e)) arc(e, true, rgba(c.line, e.faint ? 0.08 : 0.15), 0.8);
+    for (const e of this.edges) if (lit(e)) { arc(e, false, rgba(c.accent, 0.18), 1.2); arc(e, true, rgba(c.accent, 0.8), 1.6); }
     for (const p of this.pulses) {
-      if (!p.from.vis || !p.to.vis) continue;
-      const t = Math.min(1, p.t), x = p.from.x + (p.to.x - p.from.x) * t, y = p.from.y + (p.to.y - p.from.y) * t;
-      const t0 = Math.max(0, t - 0.22), x0 = p.from.x + (p.to.x - p.from.x) * t0, y0 = p.from.y + (p.to.y - p.from.y) * t0;
-      this.spark(p, x0, y0, x, y, Math.max(0.45, Math.min(p.from.fade, p.to.fade)));
+      const e = this.edgeOf.get(p.from.id + '|' + p.to.id); if (!e) continue;
+      const t = Math.min(1, p.t), t0 = Math.max(0, t - 0.25);
+      const pts = Array.from({ length: 9 }, (_, j) => this.arcAt(e, p.from, t0 + (t - t0) * (j / 8))), k = pts[8][2] ? 1 : 0.3;
+      ctx.lineCap = 'round';
+      for (let j = 1; j < pts.length; j++) {
+        ctx.strokeStyle = rgba(p.color, (j / 8) * 0.9 * k * (p.faint ? 0.7 : 1)); ctx.lineWidth = (p.faint ? 1.4 : 2.2) * (0.4 + 0.6 * j / 8);
+        ctx.beginPath(); ctx.moveTo(pts[j - 1][0], pts[j - 1][1]); ctx.lineTo(pts[j][0], pts[j][1]); ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+      const [x, y] = pts[8], R = (p.faint ? 6 : 10) * (k < 1 ? 0.7 : 1), rg = ctx.createRadialGradient(x, y, 0, x, y, R);
+      rg.addColorStop(0, rgba(p.color, k)); rg.addColorStop(0.35, rgba(p.color, 0.45 * k)); rg.addColorStop(1, rgba(p.color, 0));
+      ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
+      ctx.fillStyle = rgba('#ffffff', 0.9 * k); ctx.beginPath(); ctx.arc(x, y, p.faint ? 1.2 : 1.8, 0, 7); ctx.fill();
     }
-    const order = this.nodes.filter(n => n.vis).sort((a, b) => a.z - b.z);    // far side first
-    const card = css('--card') || '#fdfbf7';
-    for (const n of order) {
-      const dim = (nb && !nb.has(n.id)) || (hl && !hl.has(n.id)), r = this.r(n) * clamp(n.s, 0.4, 3);
+    const front = this.nodes.filter(n => n.front).sort((a, b) => a.z - b.z);
+    for (const n of front) {
+      const dim = (nb && !nb.has(n.id)) || (hl && !hl.has(n.id)), r = size(n);
       if (n.glow > 0) {
-        const rg = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, r + 16 * n.glow); rg.addColorStop(0, rgba(c.accent, 0.35 * n.glow * n.fade)); rg.addColorStop(1, rgba(c.accent, 0));
+        const rg = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, r + 16 * n.glow); rg.addColorStop(0, rgba(c.accent, 0.35 * n.glow)); rg.addColorStop(1, rgba(c.accent, 0));
         ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(n.x, n.y, r + 16 * n.glow, 0, 7); ctx.fill();
       }
-      ctx.globalAlpha = (dim ? 0.22 : 1) * n.fade;
-      if (n.kind === 'company') { ctx.strokeStyle = c.mute; ctx.lineWidth = 1.2; ctx.fillStyle = card; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.stroke(); }
-      else { ctx.fillStyle = n.kind === 'family' ? c.ink : rgba(c.ink, 0.55); ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); }
-      if (n === this.focused || n.glow > 0.3) { ctx.strokeStyle = rgba(c.accent, n === this.focused ? 1 : n.glow); ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(n.x, n.y, r + 3, 0, 7); ctx.stroke(); }
-      ctx.globalAlpha = 1;
+      dot(n, r, (dim ? 0.28 : 1) * n.fade);
+      if (n === F || n.glow > 0.3) { ctx.strokeStyle = rgba(c.accent, n === F ? 1 : n.glow); ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(n.x, n.y, r + 3.5, 0, 7); ctx.stroke(); }
     }
-    // names: always for what you point at or focus, for linked dots, for front-facing roles, and for anything close to you.
-    // Nearest first, skipping any that would overlap one already written, so close-up names stay readable.
-    const named = order.filter(n => n.label && n.fade > 0.15 && (n === hv || n === this.focused || (nb && nb.has(n.id)) || (hl && hl.has(n.id) && n.fade > 0.35)
-      || (this.label(n) && n.fade > 0.55) || n.s > NEAR)).sort((a, b) => (b === hv || b === this.focused) - (a === hv || a === this.focused) || b.z - a.z);
+
+    // 4. names: what you point at or focus, what is linked to it, role families facing you, and anything you have zoomed close to.
+    // Nearest first, skipping any that would overlap one already written.
+    const named = front.filter(n => n.label && (n === hv || n === F || (nb && nb.has(n.id)) || (hl && hl.has(n.id))
+      || (this.label(n) && n.fade > 0.7) || n.s > NEAR)).sort((a, b) => (b === hv || b === F) - (a === hv || a === F) || b.z - a.z);
     const boxes = [];
     for (const n of named) {
-      const big = n.kind === 'family', size = Math.round((big ? 13 : 11) * clamp(n.s, 0.9, 1.6));
-      ctx.font = big ? `400 ${size}px Newsreader, Georgia, serif` : `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
-      const w = ctx.measureText(n.label).width, r = this.r(n) * clamp(n.s, 0.4, 3), bx = { x: n.x - w / 2 - 2, y: n.y + r + 3, w: w + 4, h: size + 4 };
-      const must = n === hv || n === this.focused;
-      if (!must && boxes.some(b => bx.x < b.x + b.w && b.x < bx.x + bx.w && bx.y < b.y + b.h && b.y < bx.y + bx.h)) continue;
+      const big = n.kind === 'family', fs = Math.round((big ? 13 : 11) * clamp(n.s, 0.95, 1.5));
+      ctx.font = big ? `500 ${fs}px Newsreader, Georgia, serif` : `${fs}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      const w = ctx.measureText(n.label).width, r = size(n), bx = { x: n.x - w / 2 - 3, y: n.y + r + 3, w: w + 6, h: fs + 4 };
+      if (!(n === hv || n === F) && boxes.some(b => bx.x < b.x + b.w && b.x < bx.x + bx.w && bx.y < b.y + b.h && b.y < bx.y + bx.h)) continue;
       boxes.push(bx);
-      ctx.globalAlpha = Math.max(0.35, n.fade);
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineWidth = 3; ctx.strokeStyle = rgba(card, 0.9);
-      ctx.fillStyle = big ? c.ink : c.mute; ctx.strokeText(n.label, n.x, bx.y + 1); ctx.fillText(n.label, n.x, bx.y + 1);
-      ctx.globalAlpha = 1;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineJoin = 'round'; ctx.lineWidth = 3; ctx.strokeStyle = rgba(card, 0.85);
+      ctx.fillStyle = big ? c.ink : '#5e564c'; ctx.globalAlpha = n.fade;
+      ctx.strokeText(n.label, n.x, bx.y + 1); ctx.fillText(n.label, n.x, bx.y + 1); ctx.globalAlpha = 1;
     }
   }
   bindSphere() {
@@ -342,7 +417,7 @@ class Net {
       const b = this.canvas.getBoundingClientRect(), x = ev.clientX - b.left, y = ev.clientY - b.top;
       let best = null, bd = 16;
       for (const n of this.nodes) {
-        if (this.sphere && (!n.vis || n.fade < 0.3)) continue;
+        if (this.sphere && !n.front) continue;
         const d = Math.hypot(n.x - x, n.y - y) - this.r(n) * (this.sphere ? clamp(n.s, 0.4, 3) : 1) - (this.sphere ? n.z * 3 : 0);   // nearer dots win ties
         if (d < bd) { bd = d; best = n; }
       }
@@ -370,21 +445,14 @@ class Net {
 const srList = (title, items) => `<div class="sr-only"><p>${esc(title)}</p><ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`;
 
 /* ---------------- Market: today's tech job map ---------------- */
-const VIEW_KEY = 'willai.mapView';
 const jobsLink = n => (n.kind === 'family' ? `#/jobs?family=${encodeURIComponent(n.key)}` : `#/jobs?q=${encodeURIComponent(n.key)}`);
 const countText = n => (n.kind === 'family' ? `${num(n.v)} openings` : n.kind === 'skill' ? `asked for in ${num(n.v)} tech openings` : `${num(n.v)} tech openings`);
-const HINT = {
-  sphere: 'Role families, the skills they ask for and who is hiring, linked when they appear in the same postings. Drag to turn it, scroll or pinch to zoom in until names appear, click a dot to focus it.',
-  flat: 'Role families, the skills they ask for and who is hiring, linked when they appear in the same postings. Hover to trace a role, click to open its jobs.',
-};
+const HINT = 'Role families, the skills they ask for and who is hiring, linked when they appear in the same postings. Drag to turn the globe, zoom in until names appear, click a dot to see its jobs.';
 
 export async function mountJobMap(el) {
   if (!el) return;
-  let view = 'sphere';
-  try { view = localStorage.getItem(VIEW_KEY) === 'flat' ? 'flat' : 'sphere'; } catch {}
-  el.innerHTML = `<div class="map-h"><div><h2>Today’s tech job map</h2><p class="sub" id="mhint"></p></div>
-    <div class="map-tools"><div class="seg" id="mview" role="group" aria-label="Map view"><button type="button" data-v="sphere">Sphere</button><button type="button" data-v="flat">Flat</button></div>
-      <form class="map-search" id="msf" role="search">${icon('search')}<input class="in" id="msq" placeholder="Find a skill, role or company" aria-label="Find on the map" role="combobox" aria-expanded="false" aria-controls="msl" aria-autocomplete="list" autocomplete="off" spellcheck="false">
+  el.innerHTML = `<div class="map-h"><div><h2>Today’s tech job map</h2><p class="sub">${HINT}</p></div>
+    <div class="map-tools"><form class="map-search" id="msf" role="search">${icon('search')}<input class="in" id="msq" placeholder="Find a skill, role or company" aria-label="Find on the map" role="combobox" aria-expanded="false" aria-controls="msl" aria-autocomplete="list" autocomplete="off" spellcheck="false">
         <button type="button" class="ms-x" hidden aria-label="Clear search">${icon('x')}</button><ul class="sugg" id="msl" role="listbox" aria-label="Matches" hidden></ul></form></div></div>
     <div class="map-canvas"><div class="map-ctl" aria-label="Zoom">
         <button type="button" class="icon-btn" data-z="in" aria-label="Zoom in">+</button><button type="button" class="icon-btn" data-z="out" aria-label="Zoom out">−</button><button type="button" class="btn sm" data-z="reset">Reset</button></div>
@@ -400,26 +468,15 @@ export async function mountJobMap(el) {
     card.innerHTML = `<b>${esc(n.label)}</b><span>${esc(countText(n))}</span><a href="${jobsLink(n)}">Open jobs →</a><button type="button" class="link" data-unfocus>Clear</button>`;
     $('[data-unfocus]', card).onclick = () => net.unfocus();
   };
-  let net;
-  const build = () => {
-    net?.destroy(); $$('canvas.net,.net-tip', box).forEach(x => x.remove()); showFocus(null);
-    const sphere = view === 'sphere';
-    net = new Net(box, {
-      sphere, height: innerWidth < 720 ? (sphere ? 420 : 380) : (sphere ? 560 : 480), nodes: g.nodes, edges: g.edges, ambient: sphere ? 450 : 650,
-      label: n => n.kind === 'family',
-      tooltip: n => `<b>${esc(n.label)}</b><span>${esc(countText(n))}</span>`,
-      onClick: sphere ? null : n => setTimeout(() => { location.hash = jobsLink(n); }, REDUCED ? 0 : 650),
-      onFocus: sphere ? showFocus : null,
-    });
-    box.prepend(net.canvas);
-    net.canvas.setAttribute('aria-label', sphere ? 'Sphere of tech role families, skills and companies. Arrow keys turn it, plus and minus zoom, 0 resets.' : 'Network of tech role families, skills and companies');
-    ctl.hidden = !sphere;
-    $('#mhint', el).textContent = HINT[view];
-    $$('#mview button', el).forEach(b => b.classList.toggle('on', b.dataset.v === view));
-    setTimeout(() => { const f = g.nodes.find(n => n.kind === 'family'); if (f && !net.dead) net.emit(f.id, 3); }, 600);
-  };
-  build();
-  $$('#mview button', el).forEach(b => b.onclick = () => { if (b.dataset.v === view) return; view = b.dataset.v; try { localStorage.setItem(VIEW_KEY, view); } catch {} build(); });
+  const net = new Net(box, {
+    sphere: true, height: innerWidth < 720 ? 420 : 560, nodes: g.nodes, edges: g.edges, ambient: 450,
+    label: n => n.kind === 'family',
+    tooltip: n => `<b>${esc(n.label)}</b><span>${esc(countText(n))}</span>`,
+    onFocus: showFocus,
+  });
+  box.prepend(net.canvas);
+  net.canvas.setAttribute('aria-label', 'Globe of tech role families, skills and companies. Arrow keys turn it, plus and minus zoom, 0 resets.');
+  setTimeout(() => { const f = g.nodes.find(n => n.kind === 'family'); if (f && !net.dead) net.emit(f.id, 3); }, 600);
   $$('[data-z]', ctl).forEach(b => b.onclick = () => (b.dataset.z === 'reset' ? net.reset() : net.zoomBy(b.dataset.z === 'in' ? 0.75 : 1.33)));
   el.insertAdjacentHTML('beforeend', srList('Role families by openings', g.nodes.filter(n => n.kind === 'family').map(n => `${n.label}: ${n.v}`)));
   bindMapSearch(el, g, () => net);
@@ -545,7 +602,7 @@ export async function loadingNet(el, c) {
   mine.forEach((s, i) => { const linked = (g?.edges || []).filter(e => e.b === 's:' + s && famIds.has(e.a)).map(e => e.a); (linked.length ? linked : [fams[i % Math.max(1, fams.length)]?.id]).filter(Boolean).slice(0, 2).forEach(f => edges.push({ a: 'k' + i, b: f, v: 1 })); });
   (g?.edges || []).filter(e => famIds.has(e.a) && coIds.has(e.b)).forEach(e => edges.push({ a: e.a, b: e.b, v: 1 }));
   for (const f of fams) if (!edges.some(e => e.a === f.id && coIds.has(e.b)) && cos[0]) edges.push({ a: f.id, b: cos[Math.floor(Math.random() * cos.length)].id, v: 1 });
-  const net = new Net(el, { height: 300, nodes, edges, fixed: true, ambient: 0, label: n => n.kind !== 'company' || true });
+  const net = new Net(el, { height: 300, fill: true, nodes, edges, fixed: true, ambient: 0, label: n => n.kind !== 'company' || true });
   net.canvas.setAttribute('aria-label', 'Your skills being matched to role families and companies');
   return {
     stage(i) {
