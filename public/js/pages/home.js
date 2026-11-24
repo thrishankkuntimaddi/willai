@@ -113,7 +113,15 @@ export async function run(c) {
   const { showLoading } = await import('../loading.js');
   const stop = showLoading(c);
   try {
-    const result = await api('/api/advise', { json: payload(c) });
+    // If the server cannot be reached (asleep, or restarting after an update), wait and try again instead of failing at once.
+    // Only for "unreachable": a real answer from the server, such as a limit or a bad request, is shown straight away.
+    let result;
+    for (const wait of [0, 10, 20, 30]) {
+      if (wait) { stop.status?.(`Reconnecting to the server, trying again in ${wait} seconds…`); await new Promise(r => setTimeout(r, wait * 1000)); stop.status?.('Reconnected, still working…'); }
+      try { result = await api('/api/advise', { json: payload(c) }); break; }
+      catch (e) { if (!e.network || wait === 30) throw e; }
+    }
+    stop.status?.('');
     const rep = { profile: c, result, at: new Date().toISOString(), done: [] };
     if (S.fb && signedIn()) { try { rep.id = await S.fb.saveReport(c, result); } catch (e) { console.warn(e); } }
     sessionStorage.setItem('willai.report', JSON.stringify(rep));

@@ -9,6 +9,19 @@ services:
     buildCommand: npm ci --omit=dev
     startCommand: node server.mjs
     healthCheckPath: /api/health
+    # Only redeploy when the backend changes. Website-only pushes (public/) go to Firebase and should not restart the API
+    # in the middle of someone's analysis. public/data/ is read by the server, so it counts.
+    buildFilter:
+      paths:
+        - server.mjs
+        - lib/**
+        - db/**
+        - scripts/**
+        - sources.json
+        - package.json
+        - package-lock.json
+        - render.yaml
+        - public/data/**
     envVars:
       - key: HOST
         value: 0.0.0.0

@@ -30,6 +30,7 @@ export function showLoading(c) {
       <div class="load-side">
         <div class="load-bar" role="progressbar" aria-label="Report progress" aria-valuemin="0" aria-valuemax="${stages.length}" aria-valuenow="1"><i id="lb"></i></div>
         <p class="load-count mono" id="lc"></p>
+        <p class="load-alert" id="la" role="status" hidden></p>
         <ol class="lsteps" id="st" aria-live="polite">${stages.map((s, i) => `<li><span class="mk"><b>${i + 1}</b>${icon('check')}</span><span>${s}</span></li>`).join('')}</ol>
         <p class="t3 load-note">Your answers are saved, so you can come back if anything fails.</p>
       </div>
@@ -80,8 +81,11 @@ export function showLoading(c) {
     rotate = setInterval(() => { if (!root.isConnected) return clearInterval(rotate); f = (f + 1) % facts.length; paint(); }, 5000);
   }).catch(() => { const w = $('#lw'); if (w) w.hidden = true; });
 
-  return async ok => {
+  const stop = async ok => {
     clearInterval(tick); clearInterval(clock); clearInterval(rotate);
     if (ok) { i = lis.length; lis.forEach(l => { l.classList.remove('on'); l.classList.add('done'); }); bar.style.width = '100%'; count.textContent = 'Done'; net?.finish(); await new Promise(r => setTimeout(r, 700)); }
   };
+  // a short line under the progress, e.g. while reconnecting to a server that is waking up
+  stop.status = msg => { const el = $('#la'); if (el) { el.textContent = msg; el.hidden = !msg; } };
+  return stop;
 }

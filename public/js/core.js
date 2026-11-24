@@ -59,7 +59,7 @@ export async function api(path, opts = {}) {
   if (opts.json) { headers['content-type'] = 'application/json'; opts = { ...opts, method: opts.method || 'POST', body: JSON.stringify(opts.json) }; }
   let r;
   try { r = await fetch(API + path, { ...opts, headers }); }
-  catch { throw new Error('The WillAI server is not reachable right now. If it was asleep it can take about 30 seconds to wake up, so try again shortly.'); }
+  catch { throw Object.assign(new Error('The WillAI server is not reachable right now. If it was asleep or restarting it can take up to a minute to come back, so try again shortly.'), { network: true }); }
   const d = await r.json().catch(() => ({ error: 'Unexpected server response.' }));
   if (!r.ok) throw new Error(d.error || `Error ${r.status}`);
   return d;
