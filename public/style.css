@@ -288,12 +288,15 @@ a.asof:hover{text-decoration:none;color:var(--t1)}
 .wz-foot{display:flex;align-items:center;gap:12px;margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
 .wz-foot #wz-next{margin-left:auto}
 .wz-foot .i{width:14px;height:14px}
-.ask-row{display:grid;grid-template-columns:1fr 120px;gap:12px}
+.ask-row{display:grid;grid-template-columns:1fr 120px;gap:12px;align-items:end}
+.ask-row .f{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .status-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .status{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:12px 14px;border:1px solid var(--line2);border-radius:10px;background:#fff;transition:border-color .15s var(--ease),background-color .15s var(--ease)}
 .status b{font-weight:500;font-size:14px}
 .status span{font-size:12px;color:var(--t3);line-height:1.35}
-.status:hover{border-color:var(--t3)}
+/* hover only tints the card; the dark ring is kept for the selected one, so the two never look alike */
+.status:hover{background:var(--raised)}
+.status:focus-visible{outline:2px solid var(--t1);outline-offset:2px;border-radius:10px}
 .status.on{border-color:var(--t1);background:var(--card);box-shadow:inset 0 0 0 1px var(--t1)}
 .f{display:block;font-size:13px;font-weight:500;margin-bottom:8px}
 span.f span,label.f span{font-weight:400;color:var(--t3)}
@@ -328,7 +331,11 @@ input[type=range]{width:100%;accent-color:var(--t1)}
 
 /* home side and band */
 .hero{align-items:start;padding-top:56px;min-height:0}
-.hero-side{display:flex;flex-direction:column;gap:16px;position:sticky;top:24px}
+.hero-copy{padding-top:56px}   /* fixed, not centred: the form changes height from step to step */
+.hero .wizard{margin-top:0;max-width:none}
+/* reports sit below the hero: your latest beside ones people shared */
+.home-reports{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:start;padding:8px 0 48px}
+.home-reports:empty{display:none}
 .trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0 12px}
 .trio div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .trio b{font:400 36px/1 var(--serif);font-variant-numeric:tabular-nums}
@@ -579,7 +586,29 @@ dialog.drawer::backdrop{background:rgba(31,27,22,.28)}
 .map-h{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:8px}
 .map-h h2{font:400 26px/1.2 var(--serif)}
 .map-h .sub{font-size:14px;color:var(--t2);max-width:620px;margin-top:4px}
-.map-search .in{width:240px}
+.map-search{position:relative}
+.map-search .in{width:280px;padding-left:38px;padding-right:36px}
+.map-search>.i{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--t3);pointer-events:none}
+.map-search .ms-x{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:28px;height:28px;display:grid;place-items:center;border-radius:6px;color:var(--t3)}
+.map-search .ms-x:hover{background:var(--raised);color:var(--t1)}
+.map-search .ms-x[hidden]{display:none}
+.map-search .ms-x .i{width:14px;height:14px}
+.map-search .sugg{left:auto;width:max(100%,320px)}
+.map-search .sugg li.none{cursor:default}
+.map-search .sugg li.none:hover{background:none}
+.map-tools{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+/* sphere controls and the card for a focused dot sit on the canvas */
+.map-ctl{position:absolute;right:12px;bottom:12px;display:flex;gap:6px;align-items:center;z-index:4}
+.map-ctl[hidden]{display:none}
+.map-ctl .icon-btn{width:34px;height:34px;font-size:18px;line-height:1;background:var(--card);border:1px solid var(--line2);border-radius:8px}
+.map-ctl .btn.sm{background:var(--card)}
+.map-focus{position:absolute;left:12px;top:12px;z-index:4;display:flex;flex-direction:column;gap:4px;max-width:260px;padding:12px 14px;background:var(--card);border:1px solid var(--line2);border-radius:12px;box-shadow:0 8px 24px rgba(31,27,22,.08);font-size:13px}
+.map-focus[hidden]{display:none}
+.map-focus b{font:400 18px/1.2 var(--serif)}
+.map-focus span{color:var(--t2)}
+.map-focus a{font-weight:500;margin-top:4px}
+.map-focus .link{align-self:flex-start;font-size:12px;color:var(--t3)}
+canvas.net:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:12px}
 .map-key{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:12px;color:var(--t2);margin-top:8px}
 .map-key i{display:inline-block;margin-right:6px;vertical-align:-1px}
 .k-fam{width:10px;height:10px;border-radius:50%;background:var(--t1)}
@@ -604,9 +633,10 @@ details.src .rowlist li{break-inside:avoid;padding:4px 0;border-top:0}
   .filters-side,.side-nav{position:static;max-height:none}
   .side-nav{flex-direction:row;overflow-x:auto}
   .fold>summary{display:flex;cursor:pointer;font-weight:500;padding:8px 0}
-  .hero-side{position:static}
   details.src .rowlist{columns:2}
   .hero{grid-template-columns:1fr;min-height:0;padding:48px 0;gap:32px}
+  .home-reports{grid-template-columns:1fr}
+  .hero-copy{padding-top:0}
   .hero h1{font-size:40px}
   .cols,.rep-h{grid-template-columns:1fr}
   .figure{text-align:left}
@@ -619,6 +649,7 @@ details.src .rowlist li{break-inside:avoid;padding:4px 0;border-top:0}
   .status-grid{grid-template-columns:1fr 1fr}
   .rowed-f{grid-template-columns:1fr}
   .ask-row{grid-template-columns:1fr 96px}
+  .map-tools,.map-search,.map-search .in{width:100%}
   .wizard{padding:16px}
   .wz-steps .l{display:none}
   .rep-top h1{font-size:32px}

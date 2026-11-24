@@ -1,8 +1,15 @@
 // The network views, drawn like ink on paper: dots for roles and skills, hairlines for "asked for together",
 // and stamp-blue signals that travel along the links when something happens. No libraries; one small canvas engine.
-import { S, $, api, esc, num } from './core.js';
+import { S, $, $$, api, esc, num, toast, icon } from './core.js';
 
 const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const TAU = Math.PI * 2;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+// a small seeded random, so the sphere is laid out the same way on every visit
+const seeded = str => { let h = 1779033703 ^ str.length; for (const ch of str) { h = Math.imul(h ^ ch.charCodeAt(0), 3432918353); h = h << 13 | h >>> 19; }
+  return () => { h = Math.imul(h ^ h >>> 16, 2246822507); h = Math.imul(h ^ h >>> 13, 3266489909); h ^= h >>> 16; return (h >>> 0) / 4294967296; }; };
+const ZOOM = { min: 0.75, max: 5, home: 2.4 };   // camera distance from the centre; the sphere has radius 1
+const NEAR = 2.1;   // a dot this much bigger than at the centre is close enough to show its name (never at the default distance)
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const rgba = (hex, a) => { const h = hex.replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(c => c + c).join('') : h, 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
 let GRAPH = null;
@@ -18,8 +25,8 @@ export const famOf = t => (FAM_RX.find(([, rx]) => rx.test(t || '')) || ['softwa
 
 /* ---------------- the engine ---------------- */
 class Net {
-  constructor(el, { height = 420, nodes, edges, label = n => n.kind === 'family', ambient = 900, onClick, tooltip, fixed = false, glyphs = [] }) {
-    Object.assign(this, { el, height, label, ambient, onClick, tooltip, fixed });
+  constructor(el, { height = 420, nodes, edges, label = n => n.kind === 'family', ambient = 900, onClick, onFocus, tooltip, fixed = false, glyphs = [], sphere = false }) {
+    Object.assign(this, { el, height, label, ambient, onClick, onFocus, tooltip, fixed, sphere });
     this.nodes = nodes.map(n => ({ ...n, x: 0, y: 0, vx: 0, vy: 0, glow: 0 }));
     this.byId = new Map(this.nodes.map(n => [n.id, n]));
     this.edges = edges.map(e => ({ ...e, a: this.byId.get(e.a), b: this.byId.get(e.b) })).filter(e => e.a && e.b);
@@ -32,10 +39,11 @@ class Net {
     this.tip = document.createElement('div'); this.tip.className = 'net-tip'; this.tip.hidden = true;
     el.append(this.canvas, this.tip);
     this.ctx = this.canvas.getContext('2d');
-    this.resize(); this.place();
-    if (!fixed) for (let i = 0; i < 320; i++) this.step(1 - i / 340);
+    this.resize();
+    if (sphere) { this.place3d(); this.cam = { yaw: 0.5, pitch: 0.25, dist: ZOOM.home, vyaw: 0, vpitch: 0 }; this.idleUntil = 0; }
+    else { this.place(); if (!fixed) for (let i = 0; i < 320; i++) this.step(1 - i / 340); }
     this.bind();
-    this.ro = new ResizeObserver(() => { const w = this.w; this.resize(); if (Math.abs(w - this.w) > 2) { this.place(); if (!fixed) for (let i = 0; i < 200; i++) this.step(1 - i / 220); } this.draw(); }); this.ro.observe(el);
+    this.ro = new ResizeObserver(() => { const w = this.w; this.resize(); if (!sphere && Math.abs(w - this.w) > 2) { this.place(); if (!fixed) for (let i = 0; i < 200; i++) this.step(1 - i / 220); } this.draw(); }); this.ro.observe(el);
     this.io = new IntersectionObserver(([en]) => { this.visible = en.isIntersecting; if (this.visible) this.loop(); }); this.io.observe(el);
     this.draw();
     if (!REDUCED) this.loop();
@@ -89,10 +97,11 @@ class Net {
   }
   pulseAlong(aId, bId, color) { const a = this.byId.get(aId), b = this.byId.get(bId); if (a && b && !REDUCED) { this.pulses.push({ from: a, to: b, t: 0, speed: 0.01, depth: 0, color: color || this.c.accent }); this.loop(); } }
   loop() {
-    if (this.raf || REDUCED || !this.visible) return;
+    if (this.raf || REDUCED || !this.visible || this.dead) return;
     const frame = now => {
       this.raf = 0;
-      if (!this.el.isConnected) return this.destroy();
+      if (!this.el.isConnected || this.dead) return this.destroy();
+      if (this.sphere) this.tick();
       if (this.ambient && (!this.lastAmbient || now - this.lastAmbient > this.ambient)) {
         this.lastAmbient = now;
         const e = this.edges[Math.floor(Math.random() * this.edges.length)];
@@ -110,7 +119,17 @@ class Net {
     };
     this.raf = requestAnimationFrame(frame);
   }
+  // a signal: a short bright trail with a glowing head, easy to see against the hairlines
+  spark(p, x0, y0, x, y, k) {
+    const ctx = this.ctx, a = (p.faint ? 0.6 : 1) * k, w = p.faint ? 1.6 : 2.4, R = p.faint ? 6 : 10;
+    const g = ctx.createLinearGradient(x0, y0, x, y); g.addColorStop(0, rgba(p.color, 0)); g.addColorStop(1, rgba(p.color, 0.9 * a));
+    ctx.strokeStyle = g; ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x, y); ctx.stroke(); ctx.lineCap = 'butt';
+    const rg = ctx.createRadialGradient(x, y, 0, x, y, R); rg.addColorStop(0, rgba(p.color, a)); rg.addColorStop(0.35, rgba(p.color, 0.45 * a)); rg.addColorStop(1, rgba(p.color, 0));
+    ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(x, y, R, 0, 7); ctx.fill();
+    ctx.fillStyle = rgba('#ffffff', 0.9 * a); ctx.beginPath(); ctx.arc(x, y, p.faint ? 1.2 : 1.8, 0, 7); ctx.fill();
+  }
   draw() {
+    if (this.sphere) return this.drawSphere();
     const { ctx, c } = this, hv = this.hover, nb = hv ? this.neighbors(hv) : null, hl = this.highlight;
     ctx.clearRect(0, 0, this.w, this.h);
     for (const e of this.edges) {
@@ -123,10 +142,7 @@ class Net {
     for (const p of this.pulses) {
       const t = Math.min(1, p.t), x = p.from.x + (p.to.x - p.from.x) * t, y = p.from.y + (p.to.y - p.from.y) * t;
       const t0 = Math.max(0, t - 0.18), x0 = p.from.x + (p.to.x - p.from.x) * t0, y0 = p.from.y + (p.to.y - p.from.y) * t0;
-      const g = ctx.createLinearGradient(x0, y0, x, y); g.addColorStop(0, rgba(p.color, 0)); g.addColorStop(1, rgba(p.color, p.faint ? 0.35 : 0.85));
-      ctx.strokeStyle = g; ctx.lineWidth = p.faint ? 1 : 1.6; ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x, y); ctx.stroke();
-      const rg = ctx.createRadialGradient(x, y, 0, x, y, p.faint ? 4 : 7); rg.addColorStop(0, rgba(p.color, p.faint ? 0.5 : 0.9)); rg.addColorStop(1, rgba(p.color, 0));
-      ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(x, y, p.faint ? 4 : 7, 0, 7); ctx.fill();
+      this.spark(p, x0, y0, x, y, 1);
     }
     for (const n of this.nodes) {
       const r = this.r(n), dim = (nb && !nb.has(n.id)) || (hl && !hl.has(n.id));
@@ -156,53 +172,304 @@ class Net {
     ctx.beginPath(); ctx.arc(x, y - 5 * s, 3 * s, 0, 7); ctx.fill();
     ctx.beginPath(); ctx.moveTo(x - 5.2 * s, y + 5 * s); ctx.quadraticCurveTo(x - 5.2 * s, y - 1.2 * s, x, y - 1.2 * s); ctx.quadraticCurveTo(x + 5.2 * s, y - 1.2 * s, x + 5.2 * s, y + 5 * s); ctx.closePath(); ctx.fill();
   }
+  /* ---------------- 3D sphere ---------------- */
+  // Role families spread evenly over a sphere; each skill and company sits near the roles that ask for it.
+  // A skill every role asks for (Git, Python) averages out towards the middle, so the busiest skills sit deep inside.
+  place3d() {
+    const rand = seeded('willai-sphere'), norm = v => { const l = Math.hypot(...v) || 1; return v.map(x => x / l); };
+    const fams = this.nodes.filter(n => n.kind === 'family');
+    fams.forEach((n, i) => { const y = 1 - ((i + 0.5) / fams.length) * 2, r = Math.sqrt(1 - y * y), a = i * 2.399963; n.p = [Math.cos(a) * r, y, Math.sin(a) * r]; });
+    const rest = this.nodes.filter(n => !n.p);
+    for (const pass of [0, 1, 2]) for (const n of rest) {
+      if (n.p) continue;
+      const linked = this.adj.get(n.id).map(e => (e.a === n ? e.b : e.a)).filter(m => m.p && (pass > 0 || m.kind === 'family'));
+      if (!linked.length) { if (pass === 2) n.p = norm([rand() - 0.5, rand() - 0.5, rand() - 0.5]).map(x => x * 0.9); continue; }
+      const sum = linked.reduce((t, m) => [t[0] + m.p[0], t[1] + m.p[1], t[2] + m.p[2]], [0, 0, 0]);
+      const agree = Math.hypot(...sum) / linked.length / Math.max(...linked.map(m => Math.hypot(...m.p)));
+      const dir = norm(sum.map(x => x / linked.length + (rand() - 0.5) * 0.35));
+      n.p = dir.map(x => x * (n.kind === 'company' ? 1.1 : 0.42 + 0.5 * agree));
+    }
+  }
+  // camera: turn by yaw (around the vertical) and pitch, look at the centre from `dist`, perspective projection
+  project() {
+    const c = this.cam, cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), cp = Math.cos(c.pitch), sp = Math.sin(c.pitch);
+    const R = Math.min(this.w, this.h) * 0.4, ox = this.w / 2, oy = this.h / 2;
+    for (const n of this.nodes) {
+      const [x, y, z] = n.p, x1 = x * cy + z * sy, z1 = -x * sy + z * cy, y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+      const depth = c.dist - z2;
+      n.vis = depth > 0.15;
+      n.s = ZOOM.home / Math.max(depth, 0.15);
+      n.x = ox + x1 * n.s * R; n.y = oy - y2 * n.s * R; n.z = z2;
+      // the far side fades like fog; anything about to pass the camera fades out instead of filling the screen
+      n.fade = clamp((z2 - c.dist + ZOOM.home + 1.1) / 1.9, 0.1, 1) * (n.s > 5 ? clamp(1 - (n.s - 5) / 3, 0, 1) : 1);
+      if (n.fade < 0.02) n.vis = false;
+    }
+  }
+  // auto-turn, the drift after a fling, and easing towards a focused node. Called every frame.
+  tick() {
+    const c = this.cam;
+    if (c.target) {
+      const t = c.target, dy = ((((t.yaw - c.yaw) % TAU) + TAU * 1.5) % TAU) - Math.PI;
+      c.yaw += dy * 0.12; c.pitch += (t.pitch - c.pitch) * 0.12; c.dist += (t.dist - c.dist) * 0.12;
+      if (Math.abs(dy) + Math.abs(t.pitch - c.pitch) + Math.abs(t.dist - c.dist) < 0.002) c.target = null;
+    } else if (!this.drag) {
+      if (Math.abs(c.vyaw) + Math.abs(c.vpitch) > 0.0003) { c.yaw += c.vyaw; c.pitch = clamp(c.pitch + c.vpitch, -1.35, 1.35); c.vyaw *= 0.95; c.vpitch *= 0.95; }
+      else if (!REDUCED && performance.now() > this.idleUntil && !this.focused) c.yaw += 0.0018;
+    }
+    c.yaw = ((c.yaw % TAU) + TAU) % TAU;
+  }
+  // someone is using it: stop the slow auto-turn for a while
+  hold(ms = 6000) { this.idleUntil = performance.now() + ms; if (REDUCED) { this.tickNow(); this.draw(); } else this.loop(); }
+  tickNow() { const c = this.cam; if (c.target) { Object.assign(c, { yaw: c.target.yaw, pitch: c.target.pitch, dist: c.target.dist }); c.target = null; } }
+  zoomBy(f) { const c = this.cam; c.target = { yaw: c.yaw, pitch: c.pitch, dist: clamp((c.target?.dist ?? c.dist) * f, ZOOM.min, ZOOM.max) }; this.hold(); }
+  reset() { this.unfocus(); this.cam.vyaw = this.cam.vpitch = 0; this.cam.target = { yaw: 0.5, pitch: 0.25, dist: ZOOM.home }; this.hold(1500); }
+  // turn the sphere so this node faces you, come a little closer, and light up what it is linked to
+  focus(n) {
+    const [x, y, z] = n.p, yaw = Math.atan2(-x, z), z1 = Math.hypot(x, z), pitch = clamp(Math.atan2(y, z1), -1.35, 1.35);
+    const c = this.cam; c.vyaw = c.vpitch = 0;
+    c.target = { yaw: ((yaw % TAU) + TAU) % TAU, pitch, dist: n.kind === 'family' ? 2 : 1.75 };   // a fixed, comfortable distance, wherever you were
+    this.focused = n; this.highlight = this.neighbors(n); this.emit(n.id, 3); this.hold(); this.onFocus?.(n);
+  }
+  unfocus() { if (!this.focused) return; this.focused = null; this.highlight = null; this.onFocus?.(null); this.draw(); }
+  drawSphere() {
+    this.project();
+    const { ctx, c } = this, hv = this.hover, nb = hv ? this.neighbors(hv) : null, hl = this.highlight;
+    ctx.clearRect(0, 0, this.w, this.h);
+    // a faint outline of the globe so the shape reads as a sphere
+    const rim = Math.min(this.w, this.h) * 0.4 * ZOOM.home / Math.sqrt(Math.max(0.01, this.cam.dist ** 2 - 1));
+    if (this.cam.dist > 1.25 && rim < Math.max(this.w, this.h)) {
+      const g = ctx.createRadialGradient(this.w / 2, this.h / 2, rim * 0.2, this.w / 2, this.h / 2, rim);
+      g.addColorStop(0, rgba(c.accent, 0.035)); g.addColorStop(1, rgba(c.accent, 0));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(this.w / 2, this.h / 2, rim, 0, 7); ctx.fill();
+      ctx.strokeStyle = rgba(c.line, 0.08); ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(this.w / 2, this.h / 2, rim, 0, 7); ctx.stroke();
+    }
+    for (const e of this.edges) {
+      if (!e.a.vis || !e.b.vis) continue;
+      const f = Math.min(e.a.fade, e.b.fade);
+      const on = (nb && (e.a === hv || e.b === hv)) || (hl && hl.has(e.a.id) && hl.has(e.b.id) && (e.a === this.focused || e.b === this.focused || !this.focused));
+      ctx.strokeStyle = on ? rgba(c.accent, 0.35 + 0.45 * f) : rgba(c.line, (e.faint ? 0.05 : 0.11) * f);
+      ctx.lineWidth = on ? 1.5 : 0.8;
+      ctx.beginPath(); ctx.moveTo(e.a.x, e.a.y); ctx.lineTo(e.b.x, e.b.y); ctx.stroke();
+    }
+    for (const p of this.pulses) {
+      if (!p.from.vis || !p.to.vis) continue;
+      const t = Math.min(1, p.t), x = p.from.x + (p.to.x - p.from.x) * t, y = p.from.y + (p.to.y - p.from.y) * t;
+      const t0 = Math.max(0, t - 0.22), x0 = p.from.x + (p.to.x - p.from.x) * t0, y0 = p.from.y + (p.to.y - p.from.y) * t0;
+      this.spark(p, x0, y0, x, y, Math.max(0.45, Math.min(p.from.fade, p.to.fade)));
+    }
+    const order = this.nodes.filter(n => n.vis).sort((a, b) => a.z - b.z);    // far side first
+    const card = css('--card') || '#fdfbf7';
+    for (const n of order) {
+      const dim = (nb && !nb.has(n.id)) || (hl && !hl.has(n.id)), r = this.r(n) * clamp(n.s, 0.4, 3);
+      if (n.glow > 0) {
+        const rg = ctx.createRadialGradient(n.x, n.y, r, n.x, n.y, r + 16 * n.glow); rg.addColorStop(0, rgba(c.accent, 0.35 * n.glow * n.fade)); rg.addColorStop(1, rgba(c.accent, 0));
+        ctx.fillStyle = rg; ctx.beginPath(); ctx.arc(n.x, n.y, r + 16 * n.glow, 0, 7); ctx.fill();
+      }
+      ctx.globalAlpha = (dim ? 0.22 : 1) * n.fade;
+      if (n.kind === 'company') { ctx.strokeStyle = c.mute; ctx.lineWidth = 1.2; ctx.fillStyle = card; ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); ctx.stroke(); }
+      else { ctx.fillStyle = n.kind === 'family' ? c.ink : rgba(c.ink, 0.55); ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, 7); ctx.fill(); }
+      if (n === this.focused || n.glow > 0.3) { ctx.strokeStyle = rgba(c.accent, n === this.focused ? 1 : n.glow); ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(n.x, n.y, r + 3, 0, 7); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+    }
+    // names: always for what you point at or focus, for linked dots, for front-facing roles, and for anything close to you.
+    // Nearest first, skipping any that would overlap one already written, so close-up names stay readable.
+    const named = order.filter(n => n.label && n.fade > 0.15 && (n === hv || n === this.focused || (nb && nb.has(n.id)) || (hl && hl.has(n.id) && n.fade > 0.35)
+      || (this.label(n) && n.fade > 0.55) || n.s > NEAR)).sort((a, b) => (b === hv || b === this.focused) - (a === hv || a === this.focused) || b.z - a.z);
+    const boxes = [];
+    for (const n of named) {
+      const big = n.kind === 'family', size = Math.round((big ? 13 : 11) * clamp(n.s, 0.9, 1.6));
+      ctx.font = big ? `400 ${size}px Newsreader, Georgia, serif` : `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+      const w = ctx.measureText(n.label).width, r = this.r(n) * clamp(n.s, 0.4, 3), bx = { x: n.x - w / 2 - 2, y: n.y + r + 3, w: w + 4, h: size + 4 };
+      const must = n === hv || n === this.focused;
+      if (!must && boxes.some(b => bx.x < b.x + b.w && b.x < bx.x + bx.w && bx.y < b.y + b.h && b.y < bx.y + bx.h)) continue;
+      boxes.push(bx);
+      ctx.globalAlpha = Math.max(0.35, n.fade);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top'; ctx.lineWidth = 3; ctx.strokeStyle = rgba(card, 0.9);
+      ctx.fillStyle = big ? c.ink : c.mute; ctx.strokeText(n.label, n.x, bx.y + 1); ctx.fillText(n.label, n.x, bx.y + 1);
+      ctx.globalAlpha = 1;
+    }
+  }
+  bindSphere() {
+    const cv = this.canvas, pts = new Map(), c = this.cam;
+    cv.style.touchAction = 'pan-y';            // one finger up/down still scrolls the page; sideways turns the sphere, two fingers zoom
+    cv.style.cursor = 'grab'; cv.tabIndex = 0;
+    cv.addEventListener('pointerdown', ev => {
+      pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      try { cv.setPointerCapture(ev.pointerId); } catch {}
+      if (pts.size === 1) { this.drag = { x: ev.clientX, y: ev.clientY, lx: ev.clientX, ly: ev.clientY, moved: false }; c.vyaw = c.vpitch = 0; c.target = null; }
+      if (pts.size === 2) { const [a, b] = [...pts.values()]; this.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, dist: c.dist }; if (this.drag) this.drag.moved = true; }
+      this.hold();
+    });
+    cv.addEventListener('pointermove', ev => {
+      if (!pts.has(ev.pointerId)) return;
+      pts.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+      if (this.pinch && pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        c.dist = clamp(this.pinch.dist * this.pinch.d / (Math.hypot(a.x - b.x, a.y - b.y) || 1), ZOOM.min, ZOOM.max);
+      } else if (this.drag) {
+        const dx = ev.clientX - this.drag.lx, dy = ev.clientY - this.drag.ly, k = 0.0065 * Math.min(1, c.dist / 2);
+        this.drag.lx = ev.clientX; this.drag.ly = ev.clientY;
+        if (Math.hypot(ev.clientX - this.drag.x, ev.clientY - this.drag.y) > 5) { this.drag.moved = true; cv.style.cursor = 'grabbing'; this.tip.hidden = true; }
+        if (!this.drag.moved) return;
+        c.yaw += dx * k; c.pitch = clamp(c.pitch + dy * k, -1.35, 1.35); c.vyaw = dx * k; c.vpitch = dy * k;
+      }
+      this.hold();
+    });
+    const up = ev => {
+      pts.delete(ev.pointerId);
+      if (pts.size < 2) this.pinch = null;
+      if (pts.size === 0) { if (this.drag?.moved) this.suppressClick = true; this.drag = null; cv.style.cursor = this.hover ? 'pointer' : 'grab'; }
+    };
+    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+    // the wheel zooms. Zooming in always stays on the map; zooming out past the furthest view hands the wheel back to the page,
+    // so scrolling down over the map still gets you down the page.
+    cv.addEventListener('wheel', ev => {
+      const nd = clamp(c.dist * Math.exp(ev.deltaY * 0.0012), ZOOM.min, ZOOM.max);
+      if (ev.deltaY > 0 && Math.abs(nd - c.dist) < 1e-4) return;
+      ev.preventDefault(); c.target = null; c.dist = nd; this.hold();
+    }, { passive: false });
+    cv.addEventListener('keydown', ev => {
+      const turn = { ArrowLeft: [-0.25, 0], ArrowRight: [0.25, 0], ArrowUp: [0, -0.2], ArrowDown: [0, 0.2] }[ev.key];
+      if (turn) { ev.preventDefault(); c.target = { yaw: c.yaw + turn[0], pitch: clamp(c.pitch + turn[1], -1.35, 1.35), dist: c.dist }; this.hold(); }
+      else if (ev.key === '+' || ev.key === '=') this.zoomBy(0.8);
+      else if (ev.key === '-' || ev.key === '_') this.zoomBy(1.25);
+      else if (ev.key === '0' || ev.key === 'Escape') this.reset();
+    });
+  }
   bind() {
+    if (this.sphere) this.bindSphere();
     const pick = ev => {
       const b = this.canvas.getBoundingClientRect(), x = ev.clientX - b.left, y = ev.clientY - b.top;
       let best = null, bd = 16;
-      for (const n of this.nodes) { const d = Math.hypot(n.x - x, n.y - y) - this.r(n); if (d < bd) { bd = d; best = n; } }
+      for (const n of this.nodes) {
+        if (this.sphere && (!n.vis || n.fade < 0.3)) continue;
+        const d = Math.hypot(n.x - x, n.y - y) - this.r(n) * (this.sphere ? clamp(n.s, 0.4, 3) : 1) - (this.sphere ? n.z * 3 : 0);   // nearer dots win ties
+        if (d < bd) { bd = d; best = n; }
+      }
       return { n: best, x, y };
     };
     this.canvas.addEventListener('pointermove', ev => {
+      if (this.drag?.moved || this.pinch) return;
       const { n, x, y } = pick(ev);
-      if (n !== this.hover) { this.hover = n; this.canvas.style.cursor = n && this.onClick ? 'pointer' : 'default'; this.draw(); }
+      if (n !== this.hover) { this.hover = n; this.canvas.style.cursor = n && (this.onClick || this.sphere) ? 'pointer' : this.sphere ? 'grab' : 'default'; this.draw(); }
       const tip = n && this.tooltip?.(n);
       this.tip.hidden = !tip;
       if (tip) { this.tip.innerHTML = tip; this.tip.style.left = Math.min(this.w - 220, x + 12) + 'px'; this.tip.style.top = (y + 14) + 'px'; }
     });
     this.canvas.addEventListener('pointerleave', () => { this.hover = null; this.tip.hidden = true; this.draw(); });
-    this.canvas.addEventListener('click', ev => { const { n } = pick(ev); if (n) { this.emit(n.id, 2); this.onClick?.(n); } });
+    this.canvas.addEventListener('click', ev => {
+      if (this.suppressClick) { this.suppressClick = false; return; }     // the end of a drag is not a click
+      const { n } = pick(ev);
+      if (this.sphere) return n ? this.focus(n) : this.unfocus();
+      if (n) { this.emit(n.id, 2); this.onClick?.(n); }
+    });
   }
-  destroy() { cancelAnimationFrame(this.raf); this.ro?.disconnect(); this.io?.disconnect(); }
+  destroy() { this.dead = true; cancelAnimationFrame(this.raf); this.ro?.disconnect(); this.io?.disconnect(); }
 }
 
 const srList = (title, items) => `<div class="sr-only"><p>${esc(title)}</p><ul>${items.map(i => `<li>${esc(i)}</li>`).join('')}</ul></div>`;
 
 /* ---------------- Market: today's tech job map ---------------- */
+const VIEW_KEY = 'willai.mapView';
+const jobsLink = n => (n.kind === 'family' ? `#/jobs?family=${encodeURIComponent(n.key)}` : `#/jobs?q=${encodeURIComponent(n.key)}`);
+const countText = n => (n.kind === 'family' ? `${num(n.v)} openings` : n.kind === 'skill' ? `asked for in ${num(n.v)} tech openings` : `${num(n.v)} tech openings`);
+const HINT = {
+  sphere: 'Role families, the skills they ask for and who is hiring, linked when they appear in the same postings. Drag to turn it, scroll or pinch to zoom in until names appear, click a dot to focus it.',
+  flat: 'Role families, the skills they ask for and who is hiring, linked when they appear in the same postings. Hover to trace a role, click to open its jobs.',
+};
+
 export async function mountJobMap(el) {
   if (!el) return;
-  el.innerHTML = `<div class="map-h"><div><h2>Today’s tech job map</h2><p class="sub">Role families, the skills they ask for and who is hiring, linked when they appear in the same postings. Hover to trace a role, click to open its jobs.</p></div>
-    <form class="map-search" id="msf"><input class="in" id="msq" placeholder="Light up a skill or role" aria-label="Find on the map" list="msl"><datalist id="msl"></datalist></form></div><div class="map-canvas"></div>
+  let view = 'sphere';
+  try { view = localStorage.getItem(VIEW_KEY) === 'flat' ? 'flat' : 'sphere'; } catch {}
+  el.innerHTML = `<div class="map-h"><div><h2>Today’s tech job map</h2><p class="sub" id="mhint"></p></div>
+    <div class="map-tools"><div class="seg" id="mview" role="group" aria-label="Map view"><button type="button" data-v="sphere">Sphere</button><button type="button" data-v="flat">Flat</button></div>
+      <form class="map-search" id="msf" role="search">${icon('search')}<input class="in" id="msq" placeholder="Find a skill, role or company" aria-label="Find on the map" role="combobox" aria-expanded="false" aria-controls="msl" aria-autocomplete="list" autocomplete="off" spellcheck="false">
+        <button type="button" class="ms-x" hidden aria-label="Clear search">${icon('x')}</button><ul class="sugg" id="msl" role="listbox" aria-label="Matches" hidden></ul></form></div></div>
+    <div class="map-canvas"><div class="map-ctl" aria-label="Zoom">
+        <button type="button" class="icon-btn" data-z="in" aria-label="Zoom in">+</button><button type="button" class="icon-btn" data-z="out" aria-label="Zoom out">−</button><button type="button" class="btn sm" data-z="reset">Reset</button></div>
+      <div class="map-focus" hidden></div></div>
     <div class="map-key"><span><i class="k-fam"></i>Role family</span><span><i class="k-skill"></i>Skill</span><span><i class="k-co"></i>Company</span><span><i class="k-line"></i>Asked for together</span><span><i class="k-pulse"></i>Signal</span></div>`;
   let g;
   try { g = await graphData(); } catch { el.querySelector('.map-canvas').innerHTML = '<p class="empty">The map is unavailable right now</p>'; return; }
-  const net = new Net(el.querySelector('.map-canvas'), {
-    height: innerWidth < 720 ? 380 : 480, nodes: g.nodes, edges: g.edges, ambient: 1100,
-    label: n => n.kind === 'family',
-    tooltip: n => `<b>${esc(n.label)}</b><span>${n.kind === 'family' ? `${num(n.v)} openings` : n.kind === 'skill' ? `asked for in ${num(n.v)} tech openings` : `${num(n.v)} tech openings`}</span>`,
-    onClick: n => setTimeout(() => { location.hash = n.kind === 'family' ? `#/jobs?family=${encodeURIComponent(n.key)}` : `#/jobs?q=${encodeURIComponent(n.key)}`; }, REDUCED ? 0 : 650),
-  });
-  net.canvas.setAttribute('aria-label', 'Network of tech role families, skills and companies');
-  el.insertAdjacentHTML('beforeend', srList('Role families by openings', g.nodes.filter(n => n.kind === 'family').map(n => `${n.label}: ${n.v}`)));
-  $('#msl', el).innerHTML = g.nodes.map(n => `<option value="${esc(n.label)}">`).join('');
-  $('#msf', el).onsubmit = e => {
-    e.preventDefault();
-    const q = $('#msq', el).value.trim().toLowerCase(), n = g.nodes.find(x => x.label.toLowerCase() === q) || g.nodes.find(x => x.label.toLowerCase().includes(q));
+  const box = $('.map-canvas', el), ctl = $('.map-ctl', el), card = $('.map-focus', el);
+  // the card for a focused dot: what it is, how many openings, and the way into them
+  const showFocus = n => {
+    card.hidden = !n;
     if (!n) return;
-    net.highlight = net.neighbors(net.byId.get(n.id)); net.emit(n.id, 3); net.draw();
-    setTimeout(() => { net.highlight = null; net.draw(); }, 4000);
+    card.innerHTML = `<b>${esc(n.label)}</b><span>${esc(countText(n))}</span><a href="${jobsLink(n)}">Open jobs →</a><button type="button" class="link" data-unfocus>Clear</button>`;
+    $('[data-unfocus]', card).onclick = () => net.unfocus();
   };
-  setTimeout(() => { const f = g.nodes.find(n => n.kind === 'family'); if (f) net.emit(f.id, 3); }, 600);
+  let net;
+  const build = () => {
+    net?.destroy(); $$('canvas.net,.net-tip', box).forEach(x => x.remove()); showFocus(null);
+    const sphere = view === 'sphere';
+    net = new Net(box, {
+      sphere, height: innerWidth < 720 ? (sphere ? 420 : 380) : (sphere ? 560 : 480), nodes: g.nodes, edges: g.edges, ambient: sphere ? 450 : 650,
+      label: n => n.kind === 'family',
+      tooltip: n => `<b>${esc(n.label)}</b><span>${esc(countText(n))}</span>`,
+      onClick: sphere ? null : n => setTimeout(() => { location.hash = jobsLink(n); }, REDUCED ? 0 : 650),
+      onFocus: sphere ? showFocus : null,
+    });
+    box.prepend(net.canvas);
+    net.canvas.setAttribute('aria-label', sphere ? 'Sphere of tech role families, skills and companies. Arrow keys turn it, plus and minus zoom, 0 resets.' : 'Network of tech role families, skills and companies');
+    ctl.hidden = !sphere;
+    $('#mhint', el).textContent = HINT[view];
+    $$('#mview button', el).forEach(b => b.classList.toggle('on', b.dataset.v === view));
+    setTimeout(() => { const f = g.nodes.find(n => n.kind === 'family'); if (f && !net.dead) net.emit(f.id, 3); }, 600);
+  };
+  build();
+  $$('#mview button', el).forEach(b => b.onclick = () => { if (b.dataset.v === view) return; view = b.dataset.v; try { localStorage.setItem(VIEW_KEY, view); } catch {} build(); });
+  $$('[data-z]', ctl).forEach(b => b.onclick = () => (b.dataset.z === 'reset' ? net.reset() : net.zoomBy(b.dataset.z === 'in' ? 0.75 : 1.33)));
+  el.insertAdjacentHTML('beforeend', srList('Role families by openings', g.nodes.filter(n => n.kind === 'family').map(n => `${n.label}: ${n.v}`)));
+  bindMapSearch(el, g, () => net);
+}
+
+const KIND = { family: 'Role', skill: 'Skill', company: 'Company' };
+// The map's search: matches as you type (names that start with it first, then the busiest), arrow keys and Enter,
+// and picking one flies the sphere to it (or lights it up on the flat map). Empty, it offers the biggest role families.
+function bindMapSearch(el, g, getNet) {
+  const form = $('#msf', el), input = $('#msq', el), list = $('#msl', el), clear = $('.ms-x', el);
+  let open = [], active = -1;
+  const rank = q => {
+    if (!q) return g.nodes.filter(n => n.kind === 'family').sort((a, b) => b.v - a.v).slice(0, 6);
+    const score = n => { const l = n.label.toLowerCase(); return l.startsWith(q) ? 3 : l.split(/[\s/&,.-]+/).some(w => w.startsWith(q)) ? 2 : l.includes(q) ? 1 : 0; };
+    return g.nodes.map(n => [n, score(n)]).filter(([, sc]) => sc).sort((a, b) => b[1] - a[1] || b[0].v - a[0].v).slice(0, 8).map(([n]) => n);
+  };
+  const show = () => {
+    const q = input.value.trim().toLowerCase();
+    open = rank(q); active = q && open.length ? 0 : -1;
+    clear.hidden = !input.value;
+    list.innerHTML = open.length ? open.map((n, i) => `<li role="option" id="msl-${i}" data-i="${i}" class="${i === active ? 'on' : ''}" aria-selected="${i === active}">
+        <span>${esc(n.label)}</span><span class="mono t3">${KIND[n.kind] || ''} · ${num(n.v)}</span></li>`).join('')
+      : `<li class="none" aria-disabled="true"><span class="t3">Nothing called “${esc(input.value.trim())}” on today’s map</span></li>`;
+    list.hidden = false; input.setAttribute('aria-expanded', 'true');
+    input.setAttribute('aria-activedescendant', active >= 0 ? `msl-${active}` : '');
+    $$('li[data-i]', list).forEach(li => li.onmousedown = e => { e.preventDefault(); pick(open[+li.dataset.i]); });
+  };
+  const hide = () => { list.hidden = true; input.setAttribute('aria-expanded', 'false'); input.removeAttribute('aria-activedescendant'); };
+  const pick = n => {
+    if (!n) return;
+    input.value = n.label; clear.hidden = false; hide();
+    const net = getNet(), node = net.byId.get(n.id);
+    if (net.sphere) return net.focus(node);
+    net.highlight = net.neighbors(node); net.emit(n.id, 3); net.draw();
+    clearTimeout(net.hlT); net.hlT = setTimeout(() => { net.highlight = null; net.draw(); }, 4000);
+  };
+  input.addEventListener('input', show);
+  input.addEventListener('focus', show);
+  input.addEventListener('blur', () => setTimeout(hide, 120));
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault(); if (list.hidden) show(); if (!open.length) return;
+      active = (active + (e.key === 'ArrowDown' ? 1 : -1) + open.length) % open.length;
+      $$('li[data-i]', list).forEach((li, i) => { li.classList.toggle('on', i === active); li.setAttribute('aria-selected', String(i === active)); });
+      input.setAttribute('aria-activedescendant', `msl-${active}`);
+      $(`#msl-${active}`, list)?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Escape') { if (!list.hidden) hide(); else { input.value = ''; clear.hidden = true; getNet().unfocus?.(); } }
+  });
+  form.onsubmit = e => { e.preventDefault(); const q = input.value.trim().toLowerCase(); if (!q) return; const n = open[active] || rank(q)[0]; n ? pick(n) : toast('Not on today’s map'); };
+  clear.onclick = () => { input.value = ''; clear.hidden = true; getNet().unfocus?.(); input.focus(); };
 }
 
 /* ---------------- Home: people moving through tech ---------------- */
