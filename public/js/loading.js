@@ -52,7 +52,9 @@ export function showLoading(c) {
     count.textContent = `Step ${i + 1} of ${lis.length}`;
   };
   show();
-  import('./people.js').then(m => m.loadingNet($('#ln'), c)).then(n => { net = n; net.stage(0); }).catch(() => { const el = $('#ln'); if (el) el.hidden = true; });
+  // one live lookup of the target role's market, shared by the map and the facts below
+  const marketP = target ? api('/api/market?q=' + encodeURIComponent(target)) : null;
+  import('./people.js').then(m => m.loadingNet($('#ln'), c, marketP)).then(n => { net = n; net.stage(0); }).catch(() => { const el = $('#ln'); if (el) el.hidden = true; });
 
   // elapsed time, so it is plain the work is still going
   const t0 = Date.now(), lt = $('#lt');
@@ -62,7 +64,7 @@ export function showLoading(c) {
   // while you wait: live facts about the target role, one at a time
   let rotate = null;
   if (!target) $('#lw').hidden = true;
-  else api('/api/market?q=' + encodeURIComponent(target)).then(m => {
+  else marketP.then(m => {
     if (!root.isConnected) return;
     const facts = factsFrom(m, target), wait = $('#lw');
     if (!facts.length) { wait.hidden = true; return; }

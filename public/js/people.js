@@ -586,24 +586,53 @@ export function mountYourMap(section, { p, r }) {
 }
 
 /* ---------------- shared by the analysis loading screen ---------------- */
-export async function loadingNet(el, c) {
-  const g = await graphData().catch(() => null);
-  const mine = [...(c.skills || []).map(s => s.name), ...(c.technologies || [])].slice(0, 9);
-  const fams = (g?.nodes || []).filter(n => n.kind === 'family').slice(0, 6);
-  const cos = (g?.nodes || []).filter(n => n.kind === 'company').sort((a, b) => b.v - a.v).slice(0, 6);
+// The map on the "building your report" screen, about this person and today's openings:
+// their skills → the role families that matter to them (target first, then current role, then the families asking for
+// their skills) → the companies hiring most for their target right now. Only real links, nothing random.
+export async function loadingNet(el, c, marketP = null) {
+  const [g, m] = await Promise.all([graphData().catch(() => null), marketP ? marketP.catch(() => null) : null]);
+  const lc = s => String(s || '').toLowerCase();
+  const mine = [...new Set([...(c.skills || []).map(s => s.name), ...(c.technologies || [])].filter(Boolean))].slice(0, 8);
+  const gNodes = g?.nodes || [], gEdges = g?.edges || [];
+  const famNodes = gNodes.filter(n => n.kind === 'family');
+  const skillNode = new Map(gNodes.filter(n => n.kind === 'skill').map(n => [lc(n.label), n.id]));
+  const target = c.target || c.role, tFam = target ? 'f:' + famOf(target) : null, rFam = c.role ? 'f:' + famOf(c.role) : null;
+  const famsOfSkill = name => { const id = skillNode.get(lc(name)); return id ? gEdges.filter(e => e.b === id && e.a.startsWith('f:')).map(e => e.a) : []; };
+
+  // role families, ranked by how much they matter to this person
+  const score = new Map();
+  const add = (id, w) => { if (famNodes.some(f => f.id === id)) score.set(id, (score.get(id) || 0) + w); };
+  if (tFam) add(tFam, 100);
+  if (rFam && rFam !== tFam) add(rFam, 50);
+  for (const s of mine) for (const f of famsOfSkill(s)) add(f, 3);
+  const fams = [...score.entries()].sort((a, b) => b[1] - a[1] || (gNodes.find(n => n.id === b[0])?.v || 0) - (gNodes.find(n => n.id === a[0])?.v || 0))
+    .slice(0, 5).map(([id]) => famNodes.find(f => f.id === id));
+  if (!fams.length) fams.push(...famNodes.slice(0, 4));
+  const anchor = fams[0];
+
+  // companies hiring most for the target today (from the live market), else the biggest hirers in those families
+  let cos = (m?.companies || []).slice(0, 6).map(r => ({ id: 'mc:' + r.k, kind: 'company', label: r.k, v: r.v, count: r.v }));
+  if (!cos.length) cos = gNodes.filter(n => n.kind === 'company' && gEdges.some(e => e.b === n.id && fams.some(f => f.id === e.a))).sort((a, b) => b.v - a.v).slice(0, 6);
+  const short = t => (t.length > 14 ? t.slice(0, 13).trim() + '…' : t);
+
   const col = (n, i) => (i + 1) / (n + 1);
   const nodes = [
-    ...mine.map((s, i) => ({ id: 'k' + i, kind: 'skill', strong: true, label: s, v: 20, fx: 0.16, fy: col(mine.length, i), align: 'right', r: 4 })),
-    ...fams.map((f, i) => ({ ...f, fx: 0.5, fy: col(fams.length, i), r: 7 })),
-    ...cos.map((f, i) => ({ ...f, label: f.label.length > 16 ? f.label.slice(0, 15) + '…' : f.label, fx: 0.82, fy: col(cos.length, i), align: 'left', r: 4 })),
+    ...mine.map((s, i) => ({ id: 'k' + i, kind: 'skill', strong: true, label: s, v: 20, fx: 0.15, fy: col(mine.length, i), align: 'right', r: 4 })),
+    ...fams.map((f, i) => ({ ...f, fx: 0.5, fy: col(fams.length, i), r: f.id === tFam ? 9 : 7 })),
+    ...cos.map((x, i) => ({ ...x, label: short(x.label) + (x.count ? ` · ${num(x.count)}` : ''), fx: 0.76, fy: col(cos.length, i), align: 'left', r: 4 })),
   ];
-  const famIds = new Set(fams.map(f => f.id)), coIds = new Set(cos.map(x => x.id));
-  const edges = [];
-  mine.forEach((s, i) => { const linked = (g?.edges || []).filter(e => e.b === 's:' + s && famIds.has(e.a)).map(e => e.a); (linked.length ? linked : [fams[i % Math.max(1, fams.length)]?.id]).filter(Boolean).slice(0, 2).forEach(f => edges.push({ a: 'k' + i, b: f, v: 1 })); });
-  (g?.edges || []).filter(e => famIds.has(e.a) && coIds.has(e.b)).forEach(e => edges.push({ a: e.a, b: e.b, v: 1 }));
-  for (const f of fams) if (!edges.some(e => e.a === f.id && coIds.has(e.b)) && cos[0]) edges.push({ a: f.id, b: cos[Math.floor(Math.random() * cos.length)].id, v: 1 });
-  const net = new Net(el, { height: 300, fill: true, nodes, edges, fixed: true, ambient: 0, label: n => n.kind !== 'company' || true });
-  net.canvas.setAttribute('aria-label', 'Your skills being matched to role families and companies');
+  const famIds = new Set(fams.map(f => f.id)), edges = [];
+  mine.forEach((s, i) => {
+    const linked = famsOfSkill(s).filter(f => famIds.has(f));
+    (linked.length ? linked : anchor ? [anchor.id] : []).forEach(f => edges.push({ a: 'k' + i, b: f, v: 1, dashed: !linked.length }));
+  });
+  // companies: link to the families they really hire in (from today's graph); the target's family hires all of them
+  for (const x of cos) {
+    const real = gEdges.filter(e => famIds.has(e.a) && lc(e.b) === lc('c:' + x.label)).map(e => e.a);
+    new Set([...(anchor ? [anchor.id] : []), ...real]).forEach(f => edges.push({ a: f, b: x.id, v: 1 }));
+  }
+  const net = new Net(el, { height: 300, fill: true, nodes, edges, fixed: true, ambient: 0, label: () => true });
+  net.canvas.setAttribute('aria-label', `Your skills linked to the role families that matter for ${target || 'you'}, and the companies hiring most for it today`);
   return {
     stage(i) {
       if (i === 0) mine.forEach((_, k) => setTimeout(() => net.emit('k' + k, 0), k * 120));
