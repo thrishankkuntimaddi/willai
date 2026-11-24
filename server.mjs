@@ -5,13 +5,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import * as store from './lib/db.mjs';
-import { collect, isCollecting, liveSearch } from './lib/collect.mjs';
+import { collect, isCollecting, liveSearch, isLiveCached } from './lib/collect.mjs';
 import * as Q from './lib/queries.mjs';
 import { advise } from './lib/advise.mjs';
 import { recommend } from './lib/recommend.mjs';
 import * as E from './lib/employer.mjs';
 import { provider, Anthropic } from './lib/llm.mjs';
 import { cleanField, filtersFrom, cleanProfile } from './lib/params.mjs';
+import { hit, limit, ipOf } from './lib/limits.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PORT = +process.env.PORT || 8787;
@@ -39,7 +40,9 @@ const send = (res, code, body, type = 'application/json') => { res.writeHead(cod
 async function readBody(req, limit = 16384) {
   let size = 0; const chunks = [];
   for await (const c of req) { size += c.length; if (size > limit) throw Object.assign(new Error('Request too large'), { status: 413 }); chunks.push(c); }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  const v = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
+  if (!v || typeof v !== 'object' || Array.isArray(v)) throw Object.assign(new Error('Bad request.'), { status: 400 });   // null, 42, [] …
+  return v;
 }
 
 const JWKS = createRemoteJWKSet(new URL('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'));
@@ -48,18 +51,24 @@ async function userFrom(req) {
   if (!m) return null;
   try {
     const { payload } = await jwtVerify(m[1], JWKS, { issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`, audience: FIREBASE_PROJECT_ID });
-    return payload.sub ? { uid: payload.sub, email: payload.email, verified: !!payload.email_verified } : null;
+    return payload.sub ? { uid: payload.sub, email: payload.email, verified: !!payload.email_verified, token: m[1] } : null;
   } catch { return null; }
 }
-const hits = new Map();
-function allowed(key, max) {
-  const now = Date.now(), arr = (hits.get(key) || []).filter(t => now - t < 3600e3);
-  if (arr.length >= max) { hits.set(key, arr); return false; }
-  arr.push(now); hits.set(key, arr);
-  if (hits.size > 20000) hits.delete(hits.keys().next().value);
-  return true;
+const N = (k, d) => Number(process.env[k] || d);
+
+// The account's role, read from Firestore with the person's own ID token (so the security rules apply). Cached for 10 minutes.
+const ROLES = new Map();
+async function roleOf(u) {
+  const c = ROLES.get(u.uid);
+  if (c && Date.now() - c.t < 600e3) return c.v;
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents/users/${encodeURIComponent(u.uid)}?mask.fieldPaths=role`,
+    { headers: { authorization: `Bearer ${u.token}` }, signal: AbortSignal.timeout(5000) }).catch(() => null);
+  if (!r?.ok) return null;                                    // not cached: a Firestore hiccup should not lock anyone out for 10 minutes
+  const v = (await r.json().catch(() => ({}))).fields?.role?.stringValue || null;
+  ROLES.set(u.uid, { t: Date.now(), v });
+  if (ROLES.size > 5000) ROLES.delete(ROLES.keys().next().value);
+  return v;
 }
-const ipOf = req => (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '?';
 
 const need = async req => { const u = await userFrom(req); if (!u) throw Object.assign(new Error('Sign in first.'), { status: 401 }); return u; };
 const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(r, ms))]);
@@ -81,7 +90,17 @@ const routes = {
   'GET /api/trends': () => Q.trends(),
   'GET /api/jobs': async (req, url) => {
     const f = filtersFrom(url.searchParams), page = Math.max(1, Math.min(100, +url.searchParams.get('page') || 1));
-    if (f.q && page === 1) await withTimeout(liveSearch(f.q).catch(() => []), 6000);
+    // A new keyword calls outside job sites (with their own quotas) and writes to the store, so only signed-in people trigger it,
+    // within per-person, per-address and site-wide hourly limits. Everyone else searches what is already collected.
+    if (f.q && page === 1) {
+      let go = isLiveCached(f.q);
+      if (!go) {
+        const u = await userFrom(req);
+        go = !!u && await hit('live:u:' + u.uid, N('LIVE_PER_HOUR_USER', 40)) && await hit('live:ip:' + ipOf(req), N('LIVE_PER_HOUR_IP', 60))
+          && await hit('live:all', N('LIVE_PER_HOUR_TOTAL', 300));
+      }
+      if (go) await withTimeout(liveSearch(f.q).catch(() => []), 6000);
+    }
     const [r, facets, t] = await Promise.all([Q.search(f, { page }), url.searchParams.get('facets') === '1' ? Q.cached('facets:' + JSON.stringify(f), 120e3, () => Q.facets(f)) : null, Q.trends()]);
     return { ...r, q: f.q, facets, collectedAt: t.collectedAt };
   },
@@ -98,6 +117,7 @@ const routes = {
     const run = await collect(); Q.clearCache(); return { ok: true, total: run.total };
   },
   'POST /api/recommend': async req => {
+    await limit('rec:ip:' + ipOf(req), N('RECOMMEND_PER_HOUR_IP', 120), 'Too many requests. Try again in a little while.');
     const b = await readBody(req, 32768);
     const avoid = {};
     for (const [k, v] of Object.entries(b.avoid || {}).slice(0, 40)) avoid[cleanField(k, 40)] = Math.min(20, +v || 0);
@@ -105,19 +125,29 @@ const routes = {
   },
   'POST /api/jobs/report': async req => {
     const u = await need(req);
-    if (!allowed('r:' + u.uid, 30)) throw Object.assign(new Error('Too many reports this hour.'), { status: 429 });
-    const r = await E.reportJob(u.uid, await readBody(req)); Q.clearCache(); return r;
+    await limit('report:u:' + u.uid, 30, 'Too many reports this hour.');
+    await limit('report:ip:' + ipOf(req), 60, 'Too many reports this hour.');
+    const r = await E.reportJob(u, await readBody(req)); Q.clearCache(); return r;
   },
   'GET /api/employer/jobs': async req => ({ items: await E.myPosts((await need(req)).uid) }),
-  'POST /api/employer/jobs': async req => { const r = await E.createPost(await need(req), await readBody(req, 16384)); Q.clearCache(); return r; },
+  'POST /api/employer/jobs': async req => {
+    const u = await need(req);
+    if (await roleOf(u) !== 'employer') throw Object.assign(new Error('Switch to an employer account to post jobs.'), { status: 403 });
+    await limit('post:ip:' + ipOf(req), N('POSTS_PER_HOUR_IP', 10), 'Too many postings from this network this hour.');
+    const r = await E.createPost(u, await readBody(req, 16384)); Q.clearCache(); return r;
+  },
   'PATCH /api/employer/jobs': async (req, url) => { await E.setPostStatus((await need(req)).uid, cleanField(url.searchParams.get('id'), 300), url.searchParams.get('status')); Q.clearCache(); return { ok: true }; },
   'DELETE /api/employer/jobs': async (req, url) => { await E.deletePost((await need(req)).uid, cleanField(url.searchParams.get('id'), 300)); Q.clearCache(); return { ok: true }; },
   'POST /api/advise': async req => {
-    const user = await userFrom(req);
-    const ok = user ? allowed('u:' + user.uid, Number(process.env.ADVISE_PER_HOUR_USER || 12)) : allowed('ip:' + ipOf(req), Number(process.env.ADVISE_PER_HOUR || 3));
-    if (!ok) throw Object.assign(new Error(user ? 'You have reached the hourly limit. Try again in an hour.' : 'Free analyses for this hour are used up. Sign in for more.'), { status: 429 });
+    const user = await userFrom(req), ip = ipOf(req);
+    // Confirmed accounts get more; anyone else shares the small per-address allowance. Every address is also capped, whatever
+    // accounts it signs in with, and a site-wide cap bounds the AI bill if someone spreads requests over many addresses.
+    if (user?.verified) await limit('advise:u:' + user.uid, N('ADVISE_PER_HOUR_USER', 12), 'You have reached the hourly limit. Try again in an hour.');
+    else await limit('advise:anon:' + ip, N('ADVISE_PER_HOUR', 3), user ? 'Free analyses for this hour are used up. Confirm your email address for more.' : 'Free analyses for this hour are used up. Sign in for more.');
+    await limit('advise:ip:' + ip, N('ADVISE_PER_HOUR_IP', 30), 'Too many analyses from this network this hour. Try again later.');
     const profile = cleanProfile(await readBody(req));
     if ((profile.role || profile.target).length < 2) throw Object.assign(new Error('Tell us your current role, or the role you want.'), { status: 400 });
+    await limit('advise:all', N('ADVISE_PER_HOUR_TOTAL', 300), 'WillAI is very busy right now. Please try again in an hour.');
     return advise(profile);
   },
 };
@@ -132,7 +162,8 @@ const server = http.createServer(async (req, res) => {
     if (handler) return send(res, 200, await handler(req, url));
     if (url.pathname.startsWith('/api/')) return send(res, 404, { error: 'Not found' });
     // static files (local dev; production frontend is on Firebase Hosting)
-    const p = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname);
+    let p;
+    try { p = url.pathname === '/' ? '/index.html' : decodeURIComponent(url.pathname); } catch { return send(res, 400, 'bad path', 'text/plain'); }   // e.g. "/%E0%A4%A"
     const file = path.join(HERE, 'public', path.normalize(p).replace(/^(\.\.[/\\])+/, ''));
     if (!file.startsWith(path.join(HERE, 'public'))) return send(res, 403, 'forbidden', 'text/plain');
     const data = await fs.readFile(file).catch(() => null);

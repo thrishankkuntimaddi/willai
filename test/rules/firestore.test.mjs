@@ -70,6 +70,13 @@ t('shared reports: public to read, only allow-listed fields, only the owner writ
   await assertSucceeds(getDoc(doc(as(null), 'shared_reports/alice_r1')));
   await assertFails(setDoc(doc(as('alice'), 'shared_reports/alice_r2'), { ...card, email: 'alice@example.com' }));
   await assertFails(setDoc(doc(as('bob'), 'shared_reports/alice_r3'), { ...card, ownerUid: 'bob' }));   // id must start with your uid
+  // numbers are drawn into the page, so they must be numbers in range; dates come from the server clock
+  await assertFails(setDoc(doc(as('alice'), 'shared_reports/alice_r4'), { ...card, exposure: '<b>99</b>' }));
+  await assertFails(setDoc(doc(as('alice'), 'shared_reports/alice_r4'), { ...card, readiness: 250 }));
+  await assertFails(setDoc(doc(as('alice'), 'shared_reports/alice_r4'), { ...card, planDays: 'forever' }));
+  await assertFails(setDoc(doc(as('alice'), 'shared_reports/alice_r4'), { ...card, status: 'ceo' }));
+  await assertFails(setDoc(doc(as('alice'), 'shared_reports/alice_r4'), { ...card, createdAt: new Date('2999-01-01') }));
+  await assertSucceeds(setDoc(doc(as('alice'), 'shared_reports/alice_r4'), { ...card, readiness: null, nearOpenings: null }));
   await assertFails(deleteDoc(doc(as('bob'), 'shared_reports/alice_r1')));
   await assertSucceeds(deleteDoc(doc(as('alice'), 'shared_reports/alice_r1')));
 });

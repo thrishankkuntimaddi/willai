@@ -29,7 +29,7 @@ Firebase Hosting (public/)  ──►  Render: server.mjs ──► lib/collect.
         └──►  Firebase Auth + Cloud Firestore (accounts, reports, saved jobs)
 ```
 
-- Postings are **never deleted**. Each run upserts what it sees; postings that disappear from a company board are marked `closed`,
+- Postings are **never deleted**. When an employer deletes their own posting it is taken off the site but the row and its reports are kept. Each run upserts what it sees; postings that disappear from a company board are marked `closed`,
   old ones `stale` (ATS roles after 120 days, aggregator roles after 45). The site shows only active postings unless you ask for older ones.
 - `/api/jobs` supports keyword (with job-title synonyms), role family, seniority, work mode (remote/hybrid/onsite), city with radius,
   country, employment type, posted-within, company category, salary listed, AI skills, and facet counts.
@@ -74,7 +74,14 @@ The free Render plan sleeps after 15 idle minutes. `.github/workflows/keepalive.
 ## Security
 
 - AI keys live only on the server (`.env` is git-ignored)
-- `/api/advise` is rate-limited: 3 per hour per IP when signed out, 12 per hour per signed-in user (Firebase ID tokens verified with Google's public keys)
+- Rate limits are counted in Postgres, so they survive restarts. `/api/advise`: 3 an hour per address when signed out or unconfirmed, 12 for confirmed accounts,
+  30 per address whatever accounts it uses, and a site-wide cap. The client address is the one Render's proxy appends to `X-Forwarded-For`, not the
+  client-supplied first entry. Firebase ID tokens are verified with Google's public keys
+- Live searches of outside job sites run only for signed-in people, within per-person, per-address and site-wide limits; `/api/recommend` is limited per address
+- Verified employer badge: a confirmed inbox on the company's own domain (the site name must be the company name), with the apply link on that domain or an
+  applicant-tracking system. Posting needs a confirmed email and an employer account
+- Only reports from confirmed accounts count; three hide an aggregator or WillAI posting, while company career-board postings are never hidden by reports
+- Shared reports: numbers must be whole numbers in range, dates come from the server, one card per person on public pages, and every value is escaped
 - Strict Content-Security-Policy, CORS limited to the app's own domains, request size and field length caps
 - Job-ad text is passed to the model as untrusted data
 - Firestore rules tested: users can only read their own data, only employers can post, only the poster can edit or delete, apply links must be `https://` or `mailto:`

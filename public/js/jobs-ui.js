@@ -87,14 +87,17 @@ export async function openJob(id) {
     <details class="report-job"><summary>${icon('flag')} Report this job</summary>
       ${signedIn() ? `<form id="rj"><div class="fbchips">${REASONS.map(x => `<label class="chipbtn"><input type="radio" name="why" value="${esc(x)}" required>${esc(x)}</label>`).join('')}</div>
         <textarea class="in" id="rjn" rows="2" maxlength="500" placeholder="What did you notice? (optional)"></textarea><button class="btn sm">Send report</button></form>`
-        : `<p class="t2"><a href="#/signin?next=${encodeURIComponent(location.hash)}">Sign in</a> to report a job. Three reports hide it until we review it.</p>`}</details>
+        : `<p class="t2"><a href="#/signin?next=${encodeURIComponent(location.hash)}">Sign in</a> to report a job. Three reports from confirmed accounts hide it until we review it.</p>`}</details>
   </div>`;
   $('[data-close]', dlg).onclick = () => dlg.close();
   bindJobActions([j, ...similar], dlg);
   const rj = $('#rj', dlg);
   if (rj) rj.onsubmit = async e => {
     e.preventDefault();
-    try { await api('/api/jobs/report', { json: { id: j.id, reason: rj.why.value, note: $('#rjn', dlg).value } }); rj.outerHTML = `<p class="t2">${icon('check')} Thanks. We will check it.</p>`; }
+    try {
+      const r = await api('/api/jobs/report', { json: { id: j.id, reason: rj.why.value, note: $('#rjn', dlg).value } });
+      rj.outerHTML = `<p class="t2">${icon('check')} Thanks. We will check it.${r.needsVerifiedEmail ? ' Confirm your email address so your reports count toward hiding a posting.' : ''}</p>`;
+    }
     catch (er) { toast(er.message); }
   };
 }

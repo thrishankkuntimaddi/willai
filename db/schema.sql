@@ -41,6 +41,9 @@ create table if not exists postings (
     setweight(to_tsvector('english', left(coalesce(text, ''), 700)), 'D')
   ) stored
 );
+-- added after launch; "if not exists" keeps boot idempotent on older databases
+alter table postings add column if not exists removed_at timestamptz;     -- employer took the posting down (kept, never deleted)
+
 create index if not exists postings_tsv on postings using gin (tsv);
 create index if not exists postings_skills on postings using gin (skills);
 create index if not exists postings_cities on postings using gin (cities);
@@ -58,6 +61,15 @@ create table if not exists job_reports (
   note    text,
   at      timestamptz not null default now(),
   primary key (job_id, uid)
+);
+alter table job_reports add column if not exists counted boolean not null default true;   -- false: reporter had no confirmed email
+
+-- hourly request counters for rate limits; kept here so they survive restarts and Render's sleep
+create table if not exists rate_hits (
+  key   text not null,
+  hour  timestamptz not null,
+  n     integer not null default 0,
+  primary key (key, hour)
 );
 
 create table if not exists collect_runs (

@@ -45,8 +45,7 @@ export default async function settings() {
   $('#pw')?.addEventListener('click', async () => { try { await S.fb.resetPassword(S.user.email); toast('Reset link sent to ' + S.user.email); } catch (e) { toast(e.message); } });
 
   // reports you shared
-  const all = await S.fb.listShared(100);
-  const mine = all.filter(x => x.ownerUid === S.user.uid);
+  const mine = await S.fb.listMyShared().catch(() => []);
   $('#shared').innerHTML = mine.length ? `<p class="f" style="margin-top:16px">Reports you shared</p><ul class="rowlist">${mine.map(x => `<li><span>${esc(x.role)}${x.target ? ' → ' + esc(x.target) : ''} <span class="mono t3">${date(x.createdAt)}</span></span>
     <button class="btn sm" data-unshare="${esc(x.id.split('_').slice(1).join('_'))}">Stop sharing</button></li>`).join('')}</ul>` : '';
   $$('[data-unshare]').forEach(b => b.onclick = async () => { await S.fb.unshareReport(b.dataset.unshare).catch(e => toast(e.message)); b.closest('li').remove(); toast('No longer shared'); });

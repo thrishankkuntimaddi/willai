@@ -20,6 +20,8 @@ services:
         value: gemini-3.5-flash
       - key: GEMINI_API_KEY
         sync: false
+      - key: TRUST_PROXY_HOPS        # rate limits read the client address the proxy appended to X-Forwarded-For
+        value: "1"
       - key: ALLOWED_ORIGINS
         value: https://willai-564c9.web.app,https://willai-564c9.firebaseapp.com
       - key: DATABASE_URL           # Supabase connection string (transaction pooler, port 6543)
