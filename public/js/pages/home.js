@@ -1,4 +1,4 @@
-// Home: the five-step analyse cycle, real reports beside it, and the people map below.
+// Home: the headline beside the five-step analyse cycle (both above the fold), real reports below, then the people map.
 import { S, $, $$, app, esc, num, icon, api, toast, data, signedIn } from '../core.js';
 import { hasRole, loadCareer, saveCareer, describeShort } from '../career.js';
 import { SECTIONS } from '../career-form.js';
@@ -18,18 +18,18 @@ export default async function home() {
   C = loadCareer();
   const t = S.trends;
   app().innerHTML = `<section class="hero enter">
-    <div>
+    <div class="hero-copy">
       <h1>See what AI changes in your tech career, and the fastest way forward</h1>
       <p class="lede">Working, fresher, student or back from a break: tell us where you are. We compare you with <b id="lede-n">${t ? num(t.total) + ' live openings' : 'today’s openings'}</b> and build a plan with real resources, for 30 days or 6 months.</p>
-      <form class="wizard" id="wz" novalidate>
-        <ol class="wz-steps" id="wz-steps"></ol>
-        <div class="wz-body" id="wz-body"></div>
-        <div id="wz-err" role="alert"></div>
-        <div class="wz-foot"><button type="button" class="btn" id="wz-back">${icon('left')}Back</button><span class="mono t3" id="wz-count"></span><button class="btn pri" id="wz-next"></button></div>
-      </form>
     </div>
-    <div id="preview" class="hero-side"></div>
+    <form class="wizard" id="wz" novalidate aria-label="Build your report">
+      <ol class="wz-steps" id="wz-steps"></ol>
+      <div class="wz-body" id="wz-body"></div>
+      <div id="wz-err" role="alert"></div>
+      <div class="wz-foot"><button type="button" class="btn" id="wz-back">${icon('left')}Back</button><span class="mono t3" id="wz-count"></span><button class="btn pri" id="wz-next"></button></div>
+    </form>
   </section>
+  <section id="preview" class="home-reports" aria-label="Reports"></section>
   <section class="people-band" id="people" aria-label="People moving through tech right now"></section>`;
   document.addEventListener('willai:trends', () => { const el = $('#lede-n'); if (el && S.trends) el.textContent = num(S.trends.total) + ' live openings'; }, { once: true });
   drawStep();

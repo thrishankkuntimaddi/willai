@@ -328,7 +328,11 @@ input[type=range]{width:100%;accent-color:var(--t1)}
 
 /* home side and band */
 .hero{align-items:start;padding-top:56px;min-height:0}
-.hero-side{display:flex;flex-direction:column;gap:16px;position:sticky;top:24px}
+.hero-copy{padding-top:56px}   /* fixed, not centred: the form changes height from step to step */
+.hero .wizard{margin-top:0;max-width:none}
+/* reports sit below the hero: your latest beside ones people shared */
+.home-reports{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px;align-items:start;padding:8px 0 48px}
+.home-reports:empty{display:none}
 .trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0 12px}
 .trio div{display:flex;flex-direction:column;gap:2px;min-width:0}
 .trio b{font:400 36px/1 var(--serif);font-variant-numeric:tabular-nums}
@@ -604,9 +608,10 @@ details.src .rowlist li{break-inside:avoid;padding:4px 0;border-top:0}
   .filters-side,.side-nav{position:static;max-height:none}
   .side-nav{flex-direction:row;overflow-x:auto}
   .fold>summary{display:flex;cursor:pointer;font-weight:500;padding:8px 0}
-  .hero-side{position:static}
   details.src .rowlist{columns:2}
   .hero{grid-template-columns:1fr;min-height:0;padding:48px 0;gap:32px}
+  .home-reports{grid-template-columns:1fr}
+  .hero-copy{padding-top:0}
   .hero h1{font-size:40px}
   .cols,.rep-h{grid-template-columns:1fr}
   .figure{text-align:left}
